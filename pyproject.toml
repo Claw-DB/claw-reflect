@@ -1,0 +1,60 @@
+[project]
+name = "claw-reflect"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "Autonomous memory distillation engine for ClawDB"
+readme = "README.md"
+license = { text = "MIT" }
+
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "celery[redis]>=5.4",
+    "redis>=5.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.13",
+    "asyncpg>=0.29",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "structlog>=24.2",
+    "prometheus-client>=0.20",
+    "httpx>=0.27",
+    "tenacity>=8.3",
+    "tiktoken>=0.7",
+    "numpy>=1.26",
+    "python-ulid>=2.2",
+    "apscheduler>=3.10",
+    "croniter>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5",
+    "httpx",
+    "factory-boy>=3.3",
+    "freezegun>=1.4",
+    "respx>=0.21",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["claw_reflect*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--cov=claw_reflect --cov-report=term-missing"
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
