@@ -34,6 +34,9 @@ dev = [
     "pytest-cov>=5",
     "httpx",
     "factory-boy>=3.3",
+    "Faker>=24",
+    "aiosqlite>=0.20",
+    "pip-audit>=2.7",
     "freezegun>=1.4",
     "respx>=0.21",
 ]

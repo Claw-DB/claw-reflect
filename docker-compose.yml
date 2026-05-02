@@ -1,85 +1,64 @@
 version: "3.9"
 
 services:
-  db:
+  reflect-api:
+    build: .
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - reflect-net
+
+  reflect-worker:
+    build: .
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    command: ["celery", "-A", "claw_reflect.workers.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+    networks:
+      - reflect-net
+
+  reflect-beat:
+    build: .
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    command: ["celery", "-A", "claw_reflect.workers.celery_app", "beat", "--loglevel=info"]
+    networks:
+      - reflect-net
+
+  postgres:
     image: postgres:16-alpine
     environment:
+      POSTGRES_DB: clawreflect
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: claw_reflect
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: postgres
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - reflect-net
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  api:
-    build: .
-    env_file: .env
-    environment:
-      REFLECT_DATABASE_URL: postgresql+asyncpg://postgres:password@db:5432/claw_reflect
-      REFLECT_REDIS_URL: redis://redis:6379/0
-    ports:
-      - "8090:8090"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: uvicorn claw_reflect.main:app --host 0.0.0.0 --port 8090
-
-  worker:
-    build: .
-    env_file: .env
-    environment:
-      REFLECT_DATABASE_URL: postgresql+asyncpg://postgres:password@db:5432/claw_reflect
-      REFLECT_REDIS_URL: redis://redis:6379/0
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: celery -A claw_reflect.workers.celery_app:celery_app worker --loglevel=info
-
-  beat:
-    build: .
-    env_file: .env
-    environment:
-      REFLECT_DATABASE_URL: postgresql+asyncpg://postgres:password@db:5432/claw_reflect
-      REFLECT_REDIS_URL: redis://redis:6379/0
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: celery -A claw_reflect.workers.celery_app:celery_app beat --loglevel=info
-
-  migrate:
-    build: .
-    env_file: .env
-    environment:
-      REFLECT_DATABASE_URL: postgresql+asyncpg://postgres:password@db:5432/claw_reflect
-      REFLECT_REDIS_URL: redis://redis:6379/0
-    depends_on:
-      db:
-        condition: service_healthy
-    command: alembic upgrade head
-    profiles:
-      - migrate
+    volumes:
+      - redisdata:/data
+    networks:
+      - reflect-net
 
 volumes:
-  postgres_data:
+  pgdata:
+  redisdata:
+
+networks:
+  reflect-net:
+    driver: bridge
