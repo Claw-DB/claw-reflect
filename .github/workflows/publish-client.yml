@@ -1,0 +1,30 @@
+name: Publish Rust Client
+
+on:
+  push:
+    tags:
+      - "claw-reflect-client-v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: claw-reflect-client
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify package builds
+        run: cargo check --all-targets
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish
