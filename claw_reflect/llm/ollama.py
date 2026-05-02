@@ -1,34 +1,23 @@
-"""OllamaAdapter — calls a locally-running Ollama instance for local model inference."""
+"""Ollama adapter that uses OpenAI-compatible chat API semantics."""
 
 from __future__ import annotations
 
-import httpx
-
-from claw_reflect.config import settings
-from claw_reflect.llm.base import BaseLLMAdapter
+from claw_reflect.llm.openai import OpenAIAdapter
 
 
-class OllamaAdapter(BaseLLMAdapter):
-    """LLM adapter that communicates with a locally-running Ollama server."""
+class OllamaAdapter(OpenAIAdapter):
+    def __init__(self, model: str, base_url: str = "http://localhost:11434", timeout: float = 30.0) -> None:
+        super().__init__(api_key="ollama", model=model, base_url=base_url, timeout=timeout)
 
-    _DEFAULT_BASE_URL = "http://localhost:11434"
+    @property
+    def provider(self) -> str:
+        return "ollama"
 
-    def __init__(self) -> None:
-        base = settings.llm_base_url or self._DEFAULT_BASE_URL
-        self._api_url = f"{base.rstrip('/')}/api/chat"
-        self._client = httpx.AsyncClient(timeout=settings.llm_timeout_secs)
-
-    async def complete(self, system: str, user: str, **kwargs: object) -> str:
-        """Send a chat request to Ollama and return the assistant message content."""
-        payload = {
-            "model": settings.llm_model,
-            "stream": False,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        }
-        response = await self._client.post(self._api_url, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        return str(data["message"]["content"])
+    async def health_check(self) -> bool:
+        try:
+            response = await self._client.get(f"{self._base_url}/api/tags")
+            response.raise_for_status()
+            tags = response.json().get("models", [])
+            return any(item.get("name", "").startswith(self.model_name) for item in tags)
+        except Exception:
+            return False

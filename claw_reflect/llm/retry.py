@@ -1,40 +1,61 @@
-"""LLM retry and fallback logic using tenacity for resilient LLM calls."""
+"""Retry and fallback policies for LLM calls."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine
-from typing import Any, TypeVar
+from dataclasses import dataclass
+from typing import Any, Callable
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
-from claw_reflect.config import settings
-from claw_reflect.llm.base import BaseLLMAdapter
+from claw_reflect.llm.base import BaseLLMAdapter, LLMMessage, LLMResponse
 from claw_reflect.logging import get_logger
 
 logger = get_logger(__name__)
 
-T = TypeVar("T")
+
+def _retryable(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        return exc.response.status_code in (429, 503)
+    return False
 
 
-def llm_retry(func: Callable[..., Coroutine[Any, Any, T]]) -> Callable[..., Coroutine[Any, Any, T]]:
-    """Decorator that adds exponential-backoff retry logic to an async LLM call."""
-    return retry(
-        stop=stop_after_attempt(settings.llm_max_retries),
-        wait=wait_exponential(multiplier=1, min=1, max=30),
-        reraise=True,
-    )(func)
+@dataclass(slots=True)
+class LLMRetryPolicy:
+    max_attempts: int = 3
+    base_delay: float = 1.0
+    max_delay: float = 30.0
 
+    def get_tenacity_retry(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return retry(
+            stop=stop_after_attempt(self.max_attempts),
+            wait=wait_random_exponential(multiplier=self.base_delay, max=self.max_delay),
+            retry=retry_if_exception(_retryable),
+            reraise=True,
+        )
 
-async def complete_with_fallback(
-    primary: BaseLLMAdapter,
-    fallback: BaseLLMAdapter,
-    system: str,
-    user: str,
-) -> str:
-    """Attempt *primary* adapter; fall back to *fallback* on HTTP error."""
-    try:
-        return await primary.complete(system, user)
-    except httpx.HTTPError as exc:
-        logger.warning("Primary LLM failed, trying fallback", error=str(exc))
-        return await fallback.complete(system, user)
+    async def with_fallback(
+        self,
+        primary: BaseLLMAdapter,
+        fallback: BaseLLMAdapter,
+        messages: list[LLMMessage],
+        max_tokens: int,
+    ) -> LLMResponse:
+        try:
+            @self.get_tenacity_retry()
+            async def _call_primary() -> LLMResponse:
+                return await primary.complete(messages=messages, max_tokens=max_tokens)
+
+            return await _call_primary()
+        except Exception as exc:
+            logger.warning(
+                "Primary LLM failed; activating fallback",
+                primary_provider=primary.provider,
+                fallback_provider=fallback.provider,
+                error=str(exc),
+            )
+            return await fallback.complete(messages=messages, max_tokens=max_tokens)
+
+        raise RuntimeError("Failed to complete with both primary and fallback LLM adapters")
