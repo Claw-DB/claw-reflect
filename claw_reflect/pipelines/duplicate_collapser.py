@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -34,6 +34,7 @@ class DuplicateCollapsePipeline(BasePipeline):
             result = await session.execute(
                 select(MemoryRecord)
                 .where(
+                    MemoryRecord.workspace_id == ctx.workspace_id,
                     MemoryRecord.agent_id == ctx.agent_id,
                     MemoryRecord.reflection_status != "archived",
                 )
@@ -56,7 +57,9 @@ class DuplicateCollapsePipeline(BasePipeline):
             prompt_library = PromptLibrary()
             reflection_results: list[ReflectionResult] = []
 
-            async def _check_pair(pair: tuple[MemoryRecord, MemoryRecord]) -> tuple[tuple[MemoryRecord, MemoryRecord], DuplicateOutput | None, Exception | None]:
+            async def _check_pair(
+                pair: tuple[MemoryRecord, MemoryRecord],
+            ) -> tuple[tuple[MemoryRecord, MemoryRecord], DuplicateOutput | None, Exception | None]:
                 memory_a, memory_b = pair
                 async with semaphore:
                     try:
@@ -98,14 +101,15 @@ class DuplicateCollapsePipeline(BasePipeline):
                     if parsed.keep_which == "merge" and parsed.merged_content:
                         merged = MemoryRecord(
                             id=self.new_id(),
+                            workspace_id=ctx.workspace_id,
                             agent_id=ctx.agent_id,
                             content=parsed.merged_content,
                             memory_type=keeper.memory_type,
                             metadata_={"merged_from": [memory_a.id, memory_b.id], "pipeline": self.name},
                             tags=list(set((memory_a.tags or []) + (memory_b.tags or []))),
                             reflection_status="reflected",
-                            created_at=datetime.now(timezone.utc),
-                            updated_at=datetime.now(timezone.utc),
+                            created_at=datetime.now(UTC),
+                            updated_at=datetime.now(UTC),
                         )
                         session.add(merged)
 
@@ -116,6 +120,7 @@ class DuplicateCollapsePipeline(BasePipeline):
                         ReflectionResult(
                             id=self.new_id(),
                             job_id=ctx.job_id,
+                            workspace_id=ctx.workspace_id,
                             memory_id=keeper.id,
                             result_type="duplicate",
                             output={

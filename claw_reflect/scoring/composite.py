@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,11 +46,7 @@ class CompositeScorer:
         recency = self.recency_scorer.score(memory)
         confidence = await self.confidence_scorer.score_with_contradiction_check(memory, session)
 
-        composite = (
-            self.importance_w * importance_result.score
-            + self.recency_w * recency
-            + self.confidence_w * confidence
-        )
+        composite = self.importance_w * importance_result.score + self.recency_w * recency + self.confidence_w * confidence
         composite = max(0.0, min(1.0, composite))
 
         memory.importance_score = importance_result.score
@@ -64,7 +60,7 @@ class CompositeScorer:
             importance=importance_result.score,
             recency=recency,
             confidence=confidence,
-            scored_at=datetime.now(timezone.utc),
+            scored_at=datetime.now(UTC),
         )
 
     async def score_batch(

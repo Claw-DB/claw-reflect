@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 
 from claw_reflect.llm.context import ContextWindowManager
 from claw_reflect.llm.prompts import PromptLibrary, parse_json_response
@@ -81,6 +80,7 @@ class SummarisationPipeline(BasePipeline):
                     if not ctx.dry_run:
                         summary_memory = MemoryRecord(
                             id=self.new_id(),
+                            workspace_id=ctx.workspace_id,
                             agent_id=ctx.agent_id,
                             content=parsed.summary,
                             memory_type="summary",
@@ -93,8 +93,8 @@ class SummarisationPipeline(BasePipeline):
                             tags=parsed.topics,
                             confidence_score=parsed.confidence,
                             reflection_status="reflected",
-                            created_at=datetime.now(timezone.utc),
-                            updated_at=datetime.now(timezone.utc),
+                            created_at=datetime.now(UTC),
+                            updated_at=datetime.now(UTC),
                         )
                         session.add(summary_memory)
 
@@ -107,6 +107,7 @@ class SummarisationPipeline(BasePipeline):
                             ReflectionResult(
                                 id=self.new_id(),
                                 job_id=ctx.job_id,
+                                workspace_id=ctx.workspace_id,
                                 memory_id=memory_id,
                                 result_type="summary",
                                 output={
@@ -142,11 +143,17 @@ class SummarisationPipeline(BasePipeline):
 
     def format_memories_for_prompt(self, memories: list[MemoryRecord]) -> str:
         ordered = sorted(memories, key=lambda m: m.created_at)
-        lines = [
-            f"{m.created_at.isoformat()} [{m.memory_type}]: {m.content.strip()}"
-            for m in ordered
-        ]
+        lines = [f"{m.created_at.isoformat()} [{m.memory_type}]: {self._sanitize_for_prompt(m.content)}" for m in ordered]
         return "\n".join(lines)
+
+    def _sanitize_for_prompt(self, content: str) -> str:
+        """Remove sensitive tokens/nulls and clamp prompt payload length."""
+        scrubbed = content.replace("\x00", "")
+        lowered = scrubbed.lower()
+        for marker in ("x-claw-api-key", "reflect_database_url", "postgresql://", "redis://", "api_key"):
+            if marker in lowered:
+                scrubbed = scrubbed.replace(marker, "[redacted]")
+        return scrubbed[:8192]
 
     def estimate_summary_quality(self, summary: str, original_memories: list[MemoryRecord]) -> float:
         original_len = sum(len(m.content) for m in original_memories) or 1

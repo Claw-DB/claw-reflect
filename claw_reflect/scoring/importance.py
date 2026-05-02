@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -62,7 +62,7 @@ class ImportanceScorer:
                 score=score,
                 reasoning=parsed.reasoning,
                 factors=list(parsed.factors),
-                scored_at=datetime.now(timezone.utc),
+                scored_at=datetime.now(UTC),
                 used_llm=True,
             )
         except Exception:
@@ -73,7 +73,7 @@ class ImportanceScorer:
                 score=heuristic_score,
                 reasoning="Heuristic fallback because LLM scoring unavailable",
                 factors=["length", "tags", "memory_type", "recency"],
-                scored_at=datetime.now(timezone.utc),
+                scored_at=datetime.now(UTC),
                 used_llm=False,
             )
 
@@ -100,14 +100,9 @@ class ImportanceScorer:
         type_bonus = type_bonus_map.get(memory.memory_type, 0.4)
         age_days = max(
             0.0,
-            (datetime.now(timezone.utc) - memory.created_at).total_seconds() / 86_400,
+            (datetime.now(UTC) - memory.created_at).total_seconds() / 86_400,
         )
         recency_component = 1.0 / (1.0 + age_days * 0.01)
 
-        weighted = (
-            length_bonus
-            + tag_bonus
-            + (type_bonus * 0.35)
-            + (recency_component * 0.15)
-        )
+        weighted = length_bonus + tag_bonus + (type_bonus * 0.35) + (recency_component * 0.15)
         return _clamp(weighted, 0.0, 1.0)

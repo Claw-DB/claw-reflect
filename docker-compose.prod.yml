@@ -1,0 +1,83 @@
+version: "3.9"
+
+services:
+  reflect-api:
+    image: ghcr.io/claw-db/claw-reflect:${VERSION}
+    environment:
+      REFLECT_ENV: production
+      REFLECT_DATABASE_URL: ${REFLECT_DATABASE_URL}?ssl=require
+      REFLECT_REDIS_URL: ${REFLECT_REDIS_URL}
+      REFLECT_LLM_PROVIDER: ${REFLECT_LLM_PROVIDER}
+      REFLECT_LLM_MODEL: ${REFLECT_LLM_MODEL}
+      REFLECT_LLM_API_KEY: ${REFLECT_LLM_API_KEY}
+      REFLECT_DEBUG: "false"
+      POSTGRES_SSL_MODE: require
+    ports:
+      - "8090:8090"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  reflect-worker:
+    image: ghcr.io/claw-db/claw-reflect:${VERSION}
+    command: ["celery", "-A", "claw_reflect.workers.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+    environment:
+      REFLECT_ENV: production
+      REFLECT_DATABASE_URL: ${REFLECT_DATABASE_URL}?ssl=require
+      REFLECT_REDIS_URL: ${REFLECT_REDIS_URL}
+      REFLECT_LLM_PROVIDER: ${REFLECT_LLM_PROVIDER}
+      REFLECT_LLM_MODEL: ${REFLECT_LLM_MODEL}
+      REFLECT_LLM_API_KEY: ${REFLECT_LLM_API_KEY}
+      REFLECT_DEBUG: "false"
+      POSTGRES_SSL_MODE: require
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  reflect-beat:
+    image: ghcr.io/claw-db/claw-reflect:${VERSION}
+    command: ["celery", "-A", "claw_reflect.workers.celery_app", "beat", "--loglevel=info"]
+    environment:
+      REFLECT_ENV: production
+      REFLECT_DATABASE_URL: ${REFLECT_DATABASE_URL}?ssl=require
+      REFLECT_REDIS_URL: ${REFLECT_REDIS_URL}
+      REFLECT_LLM_PROVIDER: ${REFLECT_LLM_PROVIDER}
+      REFLECT_LLM_MODEL: ${REFLECT_LLM_MODEL}
+      REFLECT_LLM_API_KEY: ${REFLECT_LLM_API_KEY}
+      REFLECT_DEBUG: "false"
+      POSTGRES_SSL_MODE: require
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_SSL_MODE: require
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"

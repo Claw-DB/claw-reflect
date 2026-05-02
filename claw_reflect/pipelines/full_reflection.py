@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
@@ -53,6 +53,7 @@ class FullReflectionPipeline(BasePipeline):
             async with self.session_factory() as session:
                 pending_result = await session.execute(
                     select(MemoryRecord).where(
+                        MemoryRecord.workspace_id == ctx.workspace_id,
                         MemoryRecord.agent_id == ctx.agent_id,
                         MemoryRecord.reflection_status == "pending",
                     )
@@ -100,7 +101,7 @@ class FullReflectionPipeline(BasePipeline):
             async with self.session_factory() as session:
                 extractor = PreferenceExtractionPipeline(self.session_factory, self.llm, self.settings)
                 if not ctx.dry_run:
-                    await extractor.update_agent_profile(session, ctx.agent_id)
+                    await extractor.update_agent_profile(session, ctx.workspace_id, ctx.agent_id)
                     await session.commit()
         except Exception as exc:
             logger.exception("Profile update failed", error=str(exc))
@@ -127,11 +128,12 @@ class FullReflectionPipeline(BasePipeline):
             duplicates_collapsed=duplicate_result.archived if duplicate_result else 0,
             preferences_extracted=preference_result.updated if preference_result else 0,
             duration_ms=duration_ms,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
         )
 
     async def preview(self, ctx: PipelineContext) -> dict[str, int]:
         dry_ctx = PipelineContext(
+            workspace_id=ctx.workspace_id,
             agent_id=ctx.agent_id,
             job_id=ctx.job_id,
             batch_size=ctx.batch_size,

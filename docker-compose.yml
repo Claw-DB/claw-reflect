@@ -16,6 +16,8 @@ services:
       retries: 3
     networks:
       - reflect-net
+    mem_limit: 512m
+    cpus: "1.0"
 
   reflect-worker:
     build: .
@@ -26,6 +28,8 @@ services:
     command: ["celery", "-A", "claw_reflect.workers.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
     networks:
       - reflect-net
+    mem_limit: 1g
+    cpus: "2.0"
 
   reflect-beat:
     build: .
@@ -36,17 +40,20 @@ services:
     command: ["celery", "-A", "claw_reflect.workers.celery_app", "beat", "--loglevel=info"]
     networks:
       - reflect-net
+    mem_limit: 256m
+    cpus: "0.5"
 
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: clawreflect
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
       - reflect-net
+    mem_limit: 1g
 
   redis:
     image: redis:7-alpine
@@ -54,6 +61,7 @@ services:
       - redisdata:/data
     networks:
       - reflect-net
+    mem_limit: 256m
 
 volumes:
   pgdata:

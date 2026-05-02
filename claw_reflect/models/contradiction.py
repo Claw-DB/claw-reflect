@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, String
+from sqlalchemy import JSON, Boolean, DateTime, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from claw_reflect.db.base import Base
@@ -17,6 +18,12 @@ class ContradictionRecord(Base):
     __tablename__ = "contradiction_records"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        nullable=False,
+        index=True,
+        default=lambda: uuid.UUID("00000000-0000-0000-0000-000000000000"),
+    )
     agent_id: Mapped[str] = mapped_column(String(26), nullable=False, index=True)
 
     memory_id_a: Mapped[str] = mapped_column(String(26), nullable=False)
@@ -27,21 +34,16 @@ class ContradictionRecord(Base):
     value_b: Mapped[Any] = mapped_column(JSON, nullable=False)
 
     detected_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), index=True
     )
 
     resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
-    resolution_strategy: Mapped[str | None] = mapped_column(
-        String(32), nullable=True
-    )  # keep_a | keep_b | merge | discard_both
+    resolution_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)  # keep_a | keep_b | merge | discard_both
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     winner_memory_id: Mapped[str | None] = mapped_column(String(26), nullable=True)
 
     def __repr__(self) -> str:
-        return (
-            f"<ContradictionRecord id={self.id!r} agent={self.agent_id!r} "
-            f"field={self.field!r} resolved={self.resolved!r}>"
-        )
+        return f"<ContradictionRecord id={self.id!r} agent={self.agent_id!r} field={self.field!r} resolved={self.resolved!r}>"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise the model to a plain dictionary."""

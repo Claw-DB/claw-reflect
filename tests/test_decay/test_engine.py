@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -22,7 +22,7 @@ def session_factory(async_session: AsyncSession):
 
 
 def _memory(mem_id: str, score: float = 0.8, promoted: bool = False, agent_id: str = "AGT0000000000000000000001"):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return MemoryRecord(
         id=mem_id,
         agent_id=agent_id,

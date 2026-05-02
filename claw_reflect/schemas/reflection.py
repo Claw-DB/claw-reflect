@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+IdPattern = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]{1,128}$")]
+JobType = Literal["full", "summarise", "extract", "deduplicate", "score"]
 
 
 class ReflectionJobCreate(BaseModel):
     """Request body for creating a new reflection job."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
-    agent_id: str
-    job_type: str = "full"
+    agent_id: IdPattern
+    job_type: JobType = "full"
     memory_ids: list[str] | None = None
     options: dict[str, Any] = Field(default_factory=dict)
 

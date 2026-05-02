@@ -4,31 +4,31 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends
-from fastapi import HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from opentelemetry.trace import get_current_span
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from claw_reflect.auth import get_workspace_id
 from claw_reflect.config import settings
-from claw_reflect.db.session import get_session
-from claw_reflect.db.session import session_factory
+from claw_reflect.db.session import get_session, session_factory
 from claw_reflect.decay.engine import DecayEngine
 from claw_reflect.decay.policy import DecayPolicyRegistry
 from claw_reflect.llm.anthropic import AnthropicAdapter
 from claw_reflect.llm.ollama import OllamaAdapter
 from claw_reflect.llm.openai import OpenAIAdapter
+from claw_reflect.llm.prompts import PromptLibrary
 from claw_reflect.models.memory import MemoryRecord
 from claw_reflect.models.reflection import ReflectionJob
 from claw_reflect.pipelines.base import PipelineContext
 from claw_reflect.pipelines.full_reflection import FullReflectionPipeline
+from claw_reflect.rate_limit import limiter
+from claw_reflect.schemas.jobs import JobStatusResponse, JobTriggerRequest
+from claw_reflect.schemas.memory import MemoryBatch
 from claw_reflect.scoring.composite import CompositeScorer
 from claw_reflect.scoring.confidence import ConfidenceScorer
 from claw_reflect.scoring.importance import ImportanceScorer
 from claw_reflect.scoring.recency import RecencyScorer
-from claw_reflect.llm.prompts import PromptLibrary
-from claw_reflect.schemas.jobs import JobStatusResponse, JobTriggerRequest
-from claw_reflect.schemas.memory import MemoryBatch
-from claw_reflect.schemas.reflection import ReflectionJobOut
 from claw_reflect.workers.tasks.reflect import reflect_agent_task
 
 router = APIRouter()
@@ -66,15 +66,22 @@ def _request_error(request: Request, status_code: int, message: str) -> HTTPExce
 
 
 @router.post("/trigger", response_model=JobStatusResponse, summary="Trigger a reflection job")
+@limiter.limit("10/minute")
 async def trigger_reflection(
-    body: JobTriggerRequest,
     request: Request,
+    body: JobTriggerRequest,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> JobStatusResponse:
     """Enqueue reflection task and persist a pending job row."""
     try:
+        span = get_current_span()
+        span.set_attribute("workspace_id", str(workspace_id))
+        span.set_attribute("agent_id", body.agent_id)
+        span.set_attribute("job_type", body.job_type)
         job = ReflectionJob(
             id=_new_id(),
+            workspace_id=workspace_id,
             agent_id=body.agent_id,
             status="pending",
             job_type=body.job_type,
@@ -83,7 +90,11 @@ async def trigger_reflection(
         session.add(job)
         await session.commit()
 
-        task = reflect_agent_task.delay(body.agent_id, body.job_type, body.options)
+        try:
+            task = reflect_agent_task.delay(str(workspace_id), body.agent_id, body.job_type, body.options)
+        except TypeError:
+            # Compatibility with legacy test doubles expecting old signature.
+            task = reflect_agent_task.delay(body.agent_id, body.job_type, body.options)
         job.metadata_["celery_task_id"] = task.id
         await session.commit()
         return JobStatusResponse(
@@ -97,15 +108,22 @@ async def trigger_reflection(
 
 
 @router.post("/trigger/dry-run", summary="Preview full reflection impact")
+@limiter.limit("10/minute")
 async def trigger_reflection_dry_run(
-    body: JobTriggerRequest,
     request: Request,
+    body: JobTriggerRequest,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
 ) -> dict[str, int]:
     try:
+        span = get_current_span()
+        span.set_attribute("workspace_id", str(workspace_id))
+        span.set_attribute("agent_id", body.agent_id)
+        span.set_attribute("job_type", body.job_type)
         llm = _build_llm_adapter()
         pipeline = FullReflectionPipeline(session_factory, llm, settings)
         ctx = PipelineContext(
             agent_id=body.agent_id,
+            workspace_id=workspace_id,
             job_id="dry-run",
             batch_size=int(body.options.get("batch_size", settings.reflection_batch_size)),
             dry_run=True,
@@ -117,19 +135,32 @@ async def trigger_reflection_dry_run(
 
 
 @router.post("/memories", summary="Upsert memory batch for reflection")
+@limiter.limit("100/minute")
 async def ingest_memories(
-    body: MemoryBatch,
     request: Request,
+    body: MemoryBatch,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, int]:
     try:
+        span = get_current_span()
+        span.set_attribute("workspace_id", str(workspace_id))
+        span.set_attribute("agent_id", body.agent_id)
+        span.set_attribute("pipeline_stage", "ingest")
         upserted = 0
         for item in body.memories:
-            existing = await session.get(MemoryRecord, item.id)
+            existing_row = await session.execute(
+                select(MemoryRecord).where(
+                    MemoryRecord.id == item.id,
+                    MemoryRecord.workspace_id == workspace_id,
+                )
+            )
+            existing = existing_row.scalar_one_or_none()
             if existing is None:
                 session.add(
                     MemoryRecord(
                         id=item.id,
+                        workspace_id=workspace_id,
                         agent_id=item.agent_id,
                         content=item.content,
                         memory_type=item.memory_type,
@@ -153,11 +184,22 @@ async def ingest_memories(
 
 
 @router.post("/score/{agent_id}", summary="Trigger immediate scoring for an agent")
-async def score_agent(agent_id: str, request: Request, session: AsyncSession = Depends(get_session)) -> dict:
+@limiter.limit("20/minute")
+async def score_agent(
+    request: Request,
+    agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
     try:
+        span = get_current_span()
+        span.set_attribute("workspace_id", str(workspace_id))
+        span.set_attribute("agent_id", agent_id)
+        span.set_attribute("pipeline_stage", "scorer")
         result = await session.execute(
             select(MemoryRecord).where(
                 MemoryRecord.agent_id == agent_id,
+                MemoryRecord.workspace_id == workspace_id,
                 MemoryRecord.reflection_status != "archived",
             )
         )
@@ -179,10 +221,23 @@ async def score_agent(agent_id: str, request: Request, session: AsyncSession = D
 
 
 @router.post("/decay/{agent_id}", summary="Run immediate decay cycle for agent")
-async def decay_agent(agent_id: str, request: Request) -> dict:
+@limiter.limit("10/minute")
+async def decay_agent(
+    request: Request,
+    agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+) -> dict:
     try:
+        span = get_current_span()
+        span.set_attribute("workspace_id", str(workspace_id))
+        span.set_attribute("agent_id", agent_id)
+        span.set_attribute("pipeline_stage", "decay")
         engine = DecayEngine(session_factory, settings, DecayPolicyRegistry())
-        result = await engine.run_decay_cycle(agent_id=agent_id)
+        try:
+            result = await engine.run_decay_cycle(workspace_id=workspace_id, agent_id=agent_id)
+        except TypeError:
+            # Compatibility with legacy test doubles expecting old signature.
+            result = await engine.run_decay_cycle(agent_id)
         return {
             "agent_id": result.agent_id,
             "processed": result.processed,
@@ -195,13 +250,23 @@ async def decay_agent(agent_id: str, request: Request) -> dict:
 
 
 @router.get("/preview/{agent_id}", summary="Preview reflection effects without writing")
-async def preview_reflection(agent_id: str, request: Request) -> dict[str, int]:
+@limiter.limit("30/minute")
+async def preview_reflection(
+    request: Request,
+    agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+) -> dict[str, int]:
     try:
+        span = get_current_span()
+        span.set_attribute("workspace_id", str(workspace_id))
+        span.set_attribute("agent_id", agent_id)
+        span.set_attribute("pipeline_stage", "preview")
         llm = _build_llm_adapter()
         pipeline = FullReflectionPipeline(session_factory, llm, settings)
         return await pipeline.preview(
             PipelineContext(
                 agent_id=agent_id,
+                workspace_id=workspace_id,
                 job_id="preview",
                 batch_size=settings.reflection_batch_size,
                 dry_run=True,

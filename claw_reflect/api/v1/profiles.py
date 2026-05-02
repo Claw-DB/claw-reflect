@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 
-from fastapi import Depends, HTTPException, Query, Request
-from sqlalchemy import and_, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from claw_reflect.auth import get_workspace_id
 from claw_reflect.db.session import get_session
 from claw_reflect.models.contradiction import ContradictionRecord
 from claw_reflect.models.memory import MemoryRecord
 from claw_reflect.models.preference import ExtractedPreference
 from claw_reflect.models.profile import AgentProfile
+from claw_reflect.rate_limit import limiter
 from claw_reflect.schemas.contradiction import ContradictionOut, ResolveContradictionRequest
 from claw_reflect.schemas.memory import MemoryRecordOut
-from claw_reflect.schemas.preference import PreferenceBatch, PreferenceOut
-from fastapi import APIRouter
-
+from claw_reflect.schemas.preference import PreferenceBatch, PreferenceOut, PreferenceUpdate
 from claw_reflect.schemas.profile import AgentProfileSchema
 
 router = APIRouter()
@@ -31,21 +32,37 @@ def _error(request: Request, status_code: int, message: str) -> HTTPException:
 
 
 @router.get("/{agent_id}", response_model=AgentProfileSchema, summary="Get agent profile")
-async def get_profile(agent_id: str, request: Request, session: AsyncSession = Depends(get_session)) -> AgentProfileSchema:
+@limiter.limit("60/minute")
+async def get_profile(
+    request: Request,
+    agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+) -> AgentProfileSchema:
     """Return the current aggregated knowledge profile for the specified agent."""
-    profile = await session.get(AgentProfile, agent_id)
+    row = await session.execute(
+        select(AgentProfile).where(
+            AgentProfile.agent_id == agent_id,
+            AgentProfile.workspace_id == workspace_id,
+        )
+    )
+    profile = row.scalar_one_or_none()
     if profile is None:
         raise _error(request, 404, "Profile not found")
     return AgentProfileSchema.model_validate(profile)
 
 
 @router.get("/{agent_id}/preferences", response_model=PreferenceBatch, summary="Get active preferences")
+@limiter.limit("60/minute")
 async def get_preferences(
-    agent_id: str,
+    request: Request,
+    agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> PreferenceBatch:
     result = await session.execute(
         select(ExtractedPreference).where(
+            ExtractedPreference.workspace_id == workspace_id,
             ExtractedPreference.agent_id == agent_id,
             ExtractedPreference.is_active.is_(True),
         )
@@ -55,29 +72,41 @@ async def get_preferences(
 
 
 @router.put("/{agent_id}/preferences/{pref_id}", response_model=PreferenceOut, summary="Update preference value")
+@limiter.limit("60/minute")
 async def update_preference(
-    agent_id: str,
-    pref_id: str,
-    body: dict,
     request: Request,
+    pref_id: str,
+    body: PreferenceUpdate,
+    agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> PreferenceOut:
-    pref = await session.get(ExtractedPreference, pref_id)
+    pref_row = await session.execute(
+        select(ExtractedPreference).where(
+            ExtractedPreference.id == pref_id,
+            ExtractedPreference.workspace_id == workspace_id,
+        )
+    )
+    pref = pref_row.scalar_one_or_none()
     if pref is None or pref.agent_id != agent_id:
         raise _error(request, 404, "Preference not found")
-    pref.value = body.get("value", pref.value)
-    pref.last_confirmed_at = datetime.now(timezone.utc)
+    pref.value = body.value
+    pref.last_confirmed_at = datetime.now(UTC)
     await session.commit()
     return PreferenceOut.model_validate(pref)
 
 
 @router.get("/{agent_id}/contradictions", response_model=list[ContradictionOut], summary="Get unresolved contradictions")
+@limiter.limit("60/minute")
 async def get_unresolved_contradictions(
-    agent_id: str,
+    request: Request,
+    agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> list[ContradictionOut]:
     result = await session.execute(
         select(ContradictionRecord).where(
+            ContradictionRecord.workspace_id == workspace_id,
             ContradictionRecord.agent_id == agent_id,
             ContradictionRecord.resolved.is_(False),
         )
@@ -90,20 +119,28 @@ async def get_unresolved_contradictions(
     response_model=ContradictionOut,
     summary="Resolve contradiction",
 )
+@limiter.limit("60/minute")
 async def resolve_contradiction(
-    agent_id: str,
+    request: Request,
     contradiction_id: str,
     body: ResolveContradictionRequest,
-    request: Request,
+    agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> ContradictionOut:
-    contradiction = await session.get(ContradictionRecord, contradiction_id)
+    contradiction_row = await session.execute(
+        select(ContradictionRecord).where(
+            ContradictionRecord.id == contradiction_id,
+            ContradictionRecord.workspace_id == workspace_id,
+        )
+    )
+    contradiction = contradiction_row.scalar_one_or_none()
     if contradiction is None or contradiction.agent_id != agent_id:
         raise _error(request, 404, "Contradiction not found")
 
     contradiction.resolved = True
     contradiction.resolution_strategy = body.strategy
-    contradiction.resolved_at = datetime.now(timezone.utc)
+    contradiction.resolved_at = datetime.now(UTC)
     if body.strategy == "keep_a":
         contradiction.winner_memory_id = contradiction.memory_id_a
     elif body.strategy == "keep_b":
@@ -114,17 +151,23 @@ async def resolve_contradiction(
 
 
 @router.get("/{agent_id}/memories", response_model=list[MemoryRecordOut], summary="List memories with filters")
+@limiter.limit("60/minute")
 async def list_memories(
-    agent_id: str,
+    request: Request,
+    agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
     status: str | None = None,
     type: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> list[MemoryRecordOut]:
     stmt = (
         select(MemoryRecord)
-        .where(MemoryRecord.agent_id == agent_id)
+        .where(
+            MemoryRecord.agent_id == agent_id,
+            MemoryRecord.workspace_id == workspace_id,
+        )
         .order_by(MemoryRecord.created_at.desc())
         .limit(limit)
         .offset(offset)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import factory
 from factory.alchemy import SQLAlchemyModelFactory
@@ -27,5 +27,5 @@ class MemoryRecordFactory(AsyncSQLAlchemyModelFactory):
     memory_type = factory.Iterator(["message", "context", "task", "reasoning_trace", "tool_output"])
     metadata_ = factory.LazyFunction(lambda: {"session_id": "test-session"})
     tags = factory.LazyFunction(lambda: ["test"])
-    created_at = factory.LazyFunction(lambda: datetime.now(timezone.utc))
-    updated_at = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    created_at = factory.LazyFunction(lambda: datetime.now(UTC))
+    updated_at = factory.LazyFunction(lambda: datetime.now(UTC))

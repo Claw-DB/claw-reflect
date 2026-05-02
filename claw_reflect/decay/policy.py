@@ -73,7 +73,7 @@ class StepDecayPolicy(DecayPolicy):
     def compute(self, current_score: float, age_days: float) -> float:
         if self._steps_mode == "half_life":
             periods = int(age_days // self._half_life_days)  # type: ignore[operator]
-            return _clamp(current_score * (0.5 ** periods), 0.0, 1.0)
+            return _clamp(current_score * (0.5**periods), 0.0, 1.0)
         multiplier = 1.0
         for threshold, step_multiplier in self.steps:
             if age_days >= threshold:
@@ -86,6 +86,7 @@ class StepDecayPolicy(DecayPolicy):
             return 0.0
         if self._steps_mode == "half_life":
             import math
+
             if archive_threshold <= 0:
                 return None
             periods = math.ceil(math.log(archive_threshold / current_score) / math.log(0.5))

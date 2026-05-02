@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: claw-reflect-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: claw-reflect-api
+  template:
+    metadata:
+      labels:
+        app: claw-reflect-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/claw-db/claw-reflect:latest
+          ports:
+            - containerPort: 8090
+          env:
+            - name: REFLECT_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: claw-reflect-secrets
+                  key: DATABASE_URL
+            - name: REFLECT_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: claw-reflect-secrets
+                  key: REDIS_URL
+            - name: REFLECT_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: claw-reflect-secrets
+                  key: LLM_API_KEY
+            - name: API_KEY_HASH_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: claw-reflect-secrets
+                  key: API_KEY_HASH_SALT
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8090
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ready
+              port: 8090
+            initialDelaySeconds: 5
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: claw-reflect-api-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: claw-reflect-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

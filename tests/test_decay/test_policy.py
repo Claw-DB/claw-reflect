@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from claw_reflect.decay.policy import ExponentialDecayPolicy, LinearDecayPolicy, StepDecayPolicy

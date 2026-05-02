@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from claw_reflect.config import settings
 from claw_reflect.llm.base import LLMResponse
@@ -16,17 +16,16 @@ from claw_reflect.pipelines.duplicate_collapser import DuplicateCollapsePipeline
 @pytest.fixture
 def session_factory(async_session: AsyncSession):
     from contextlib import asynccontextmanager
-    from unittest.mock import AsyncMock
-    
+
     @asynccontextmanager
     async def _factory():
         yield async_session
-    
+
     return _factory
 
 
 def _memory(mem_id: str, content: str, status: str = "pending") -> MemoryRecord:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return MemoryRecord(
         id=mem_id,
         agent_id="AGT0000000000000000000001",
@@ -70,12 +69,13 @@ async def test_collapser_archives_lower_scoring_duplicate(async_session, session
     b.composite_score = 0.1
     # Ensure 'a' has a later created_at so it is memory_a in the pipeline (DESC order)
     from datetime import timedelta
+
     a.created_at = a.created_at + timedelta(seconds=1)
     async_session.add_all([a, b])
     await async_session.commit()
 
     pipeline = DuplicateCollapsePipeline(session_factory, mock_llm, settings)
-    result = await pipeline.run(PipelineContext(agent_id=a.agent_id, job_id="DJ1", batch_size=50))
+    await pipeline.run(PipelineContext(agent_id=a.agent_id, job_id="DJ1", batch_size=50))
     await async_session.refresh(b)
     loaded_b = b
     assert loaded_b is not None and loaded_b.reflection_status == "archived"

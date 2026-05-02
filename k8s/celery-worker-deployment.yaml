@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: claw-reflect-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: claw-reflect-worker
+  template:
+    metadata:
+      labels:
+        app: claw-reflect-worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/claw-db/claw-reflect:latest
+          command: ["celery", "-A", "claw_reflect.workers.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+          env:
+            - name: REFLECT_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: claw-reflect-secrets
+                  key: DATABASE_URL
+            - name: REFLECT_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: claw-reflect-secrets
+                  key: REDIS_URL
+            - name: REFLECT_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: claw-reflect-secrets
+                  key: LLM_API_KEY
+            - name: API_KEY_HASH_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: claw-reflect-secrets
+                  key: API_KEY_HASH_SALT
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: claw-reflect-worker-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: claw-reflect-worker
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 import httpx
+from opentelemetry.propagate import inject
 
 from claw_reflect.llm.base import BaseLLMAdapter, LLMMessage, LLMResponse
 
@@ -46,6 +47,7 @@ class OpenAIAdapter(BaseLLMAdapter):
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
+        inject(headers)
 
         started = time.perf_counter()
         response = await self._client.post(

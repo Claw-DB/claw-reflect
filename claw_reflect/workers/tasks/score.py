@@ -1,9 +1,12 @@
 """Celery task for refreshing composite scores across all memory records."""
+
 import asyncio
+from uuid import UUID
 
 from sqlalchemy import select
 
 from claw_reflect.config import settings
+from claw_reflect.db.session import session_factory
 from claw_reflect.llm.anthropic import AnthropicAdapter
 from claw_reflect.llm.ollama import OllamaAdapter
 from claw_reflect.llm.openai import OpenAIAdapter
@@ -15,7 +18,6 @@ from claw_reflect.scoring.confidence import ConfidenceScorer
 from claw_reflect.scoring.importance import ImportanceScorer
 from claw_reflect.scoring.recency import RecencyScorer
 from claw_reflect.workers.celery_app import celery_app
-from claw_reflect.db.session import session_factory
 
 
 def _build_llm_adapter():
@@ -39,8 +41,13 @@ def _build_llm_adapter():
         timeout=settings.llm_timeout_secs,
     )
 
+
 @celery_app.task(bind=True, name="claw_reflect.workers.tasks.score.rescore_memories_task")
-def rescore_memories_task(self, agent_id: str | None = None) -> dict[str, object]:
+def rescore_memories_task(
+    self,
+    workspace_id: str | None = None,
+    agent_id: str | None = None,
+) -> dict[str, object]:
     """Recompute composite scores for non-archived memories in pages."""
 
     async def _run() -> dict[str, object]:
@@ -67,6 +74,8 @@ def rescore_memories_task(self, agent_id: str | None = None) -> dict[str, object
                 )
                 if agent_id:
                     stmt = stmt.where(MemoryRecord.agent_id == agent_id)
+                if workspace_id:
+                    stmt = stmt.where(MemoryRecord.workspace_id == UUID(workspace_id))
                 result = await session.execute(stmt)
                 page = list(result.scalars().all())
 
@@ -79,6 +88,6 @@ def rescore_memories_task(self, agent_id: str | None = None) -> dict[str, object
                 offset += len(page)
 
         memories_processed_total.labels(agent_id=agent_id or "all", pipeline_name="rescoring").inc(total_rescored)
-        return {"agent_id": agent_id, "rescored": total_rescored}
+        return {"workspace_id": workspace_id, "agent_id": agent_id, "rescored": total_rescored}
 
     return asyncio.run(_run())

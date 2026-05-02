@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import os
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from starlette.requests import Request
 
 os.environ.setdefault("REFLECT_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("REFLECT_LLM_API_KEY", "test-key")
+os.environ.setdefault("REFLECT_RATE_LIMIT_STORAGE_URL", "memory://")
 
+from claw_reflect.auth import get_api_key
 from claw_reflect.config import Settings, settings
 from claw_reflect.db.base import Base
 from claw_reflect.db.session import get_session
@@ -70,6 +73,7 @@ def test_settings(monkeypatch) -> Settings:
 async def async_engine(test_settings):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
     async with engine.begin() as conn:
+        import claw_reflect.models.api_key  # noqa: F401
         import claw_reflect.models.contradiction  # noqa: F401
         import claw_reflect.models.decay  # noqa: F401
         import claw_reflect.models.memory  # noqa: F401
@@ -94,8 +98,20 @@ async def client(async_session: AsyncSession) -> AsyncIterator[AsyncClient]:
     async def _override_get_session():
         yield async_session
 
+    async def _override_get_api_key(request: Request):
+        request.state.workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
+        request.state.api_key_prefix = "test-key"
+        return "test-key"
+
+    from claw_reflect.api.v1 import router as v1_router_module
+
     app.dependency_overrides[get_session] = _override_get_session
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    app.dependency_overrides[get_api_key] = _override_get_api_key
+    app.dependency_overrides[v1_router_module.get_api_key] = _override_get_api_key
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as ac:
         yield ac
     app.dependency_overrides.clear()
 

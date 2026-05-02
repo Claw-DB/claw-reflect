@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from claw_reflect.db.base import Base
@@ -17,6 +18,12 @@ class ReflectionJob(Base):
     __tablename__ = "reflection_jobs"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        nullable=False,
+        index=True,
+        default=lambda: uuid.UUID("00000000-0000-0000-0000-000000000000"),
+    )
     agent_id: Mapped[str] = mapped_column(String(26), nullable=False, index=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", index=True
@@ -25,9 +32,7 @@ class ReflectionJob(Base):
         String(32), nullable=False, default="full"
     )  # full | summarise | extract | deduplicate | score
 
-    started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
-    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     memories_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -35,18 +40,12 @@ class ReflectionJob(Base):
     memories_archived: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_: Mapped[dict[str, Any]] = mapped_column(
-        "metadata", JSON, nullable=False, default=dict
-    )
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, nullable=False, default=dict)
 
-    results: Mapped[list[ReflectionResult]] = relationship(
-        "ReflectionResult", back_populates="job", cascade="all, delete-orphan"
-    )
+    results: Mapped[list[ReflectionResult]] = relationship("ReflectionResult", back_populates="job", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
-        return (
-            f"<ReflectionJob id={self.id!r} agent={self.agent_id!r} status={self.status!r}>"
-        )
+        return f"<ReflectionJob id={self.id!r} agent={self.agent_id!r} status={self.status!r}>"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise the model to a plain dictionary."""
@@ -71,6 +70,12 @@ class ReflectionResult(Base):
     __tablename__ = "reflection_results"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        nullable=False,
+        index=True,
+        default=lambda: uuid.UUID("00000000-0000-0000-0000-000000000000"),
+    )
     job_id: Mapped[str] = mapped_column(
         String(26), ForeignKey("reflection_jobs.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -85,9 +90,7 @@ class ReflectionResult(Base):
     job: Mapped[ReflectionJob] = relationship("ReflectionJob", back_populates="results")
 
     def __repr__(self) -> str:
-        return (
-            f"<ReflectionResult id={self.id!r} type={self.result_type!r} applied={self.applied!r}>"
-        )
+        return f"<ReflectionResult id={self.id!r} type={self.result_type!r} applied={self.applied!r}>"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise the model to a plain dictionary."""

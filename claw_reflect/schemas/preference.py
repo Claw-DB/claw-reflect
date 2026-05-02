@@ -36,7 +36,7 @@ class PreferenceBatch(BaseModel):
 class PreferenceUpdate(BaseModel):
     """Partial update payload for a preference record."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     key: str
     value: Any

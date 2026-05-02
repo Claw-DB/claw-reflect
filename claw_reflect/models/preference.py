@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from claw_reflect.db.base import Base
@@ -15,9 +16,17 @@ class ExtractedPreference(Base):
     """Stores a single preference key/value pair extracted from an agent's memory corpus."""
 
     __tablename__ = "extracted_preferences"
-    __table_args__ = (UniqueConstraint("agent_id", "category", "key", name="uq_preference_agent_cat_key"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "agent_id", "category", "key", name="uq_preference_workspace_agent_cat_key"),
+    )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        nullable=False,
+        index=True,
+        default=lambda: uuid.UUID("00000000-0000-0000-0000-000000000000"),
+    )
     agent_id: Mapped[str] = mapped_column(String(26), nullable=False, index=True)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
     key: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -25,20 +34,15 @@ class ExtractedPreference(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     source_memory_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
-    )
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
     last_confirmed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
     confirmation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
 
     def __repr__(self) -> str:
-        return (
-            f"<ExtractedPreference id={self.id!r} agent={self.agent_id!r} "
-            f"key={self.category!r}/{self.key!r}>"
-        )
+        return f"<ExtractedPreference id={self.id!r} agent={self.agent_id!r} key={self.category!r}/{self.key!r}>"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise the model to a plain dictionary."""

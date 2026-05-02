@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import redis
-from fastapi import APIRouter
-from fastapi import Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
@@ -24,7 +23,7 @@ async def health() -> dict[str, str]:
     """Return service liveness status."""
     return {
         "status": "ok",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "version": "0.1.0",
     }
 
@@ -33,6 +32,7 @@ async def health() -> dict[str, str]:
 async def ready(session: AsyncSession = Depends(get_session)) -> dict[str, str]:
     """Return readiness status; fail if DB or Redis is unavailable."""
     try:
+        # Safe constant health probe query with no user-controlled interpolation.
         await session.execute(text("SELECT 1"))
     except Exception as exc:
         raise HTTPException(status_code=503, detail={"status": "db_down", "error": str(exc)}) from exc

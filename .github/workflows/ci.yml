@@ -23,7 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install .[dev]
       - name: Run tests
-        run: pytest --cov=claw_reflect --cov-report=xml
+        run: pytest tests/ -x --cov=claw_reflect --cov-report=xml
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
@@ -60,7 +60,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install .[dev]
       - name: Mypy
-        run: mypy claw_reflect/
+        run: mypy claw_reflect --strict
 
   docker-build:
     runs-on: ubuntu-latest

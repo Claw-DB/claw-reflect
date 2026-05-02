@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -26,6 +27,7 @@ class DecayPreview:
 
 @dataclass(slots=True)
 class DecayCycleResult:
+    workspace_id: uuid.UUID | None
     agent_id: str | None
     processed: int
     decayed: int
@@ -46,15 +48,26 @@ class DecayEngine:
         self.settings = settings
         self.policy_registry = policy_registry
 
-    async def run_decay_cycle(self, agent_id: str | None = None) -> DecayCycleResult:
+    async def run_decay_cycle(
+        self,
+        workspace_id: uuid.UUID | None = None,
+        agent_id: str | None = None,
+    ) -> DecayCycleResult:
+        # Backwards compatibility: older callsites passed agent_id as first positional arg.
+        if isinstance(workspace_id, str) and agent_id is None:
+            agent_id = workspace_id
+            workspace_id = None
+
         started = time.perf_counter()
         processed = decayed = archived = skipped_promoted = 0
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         async with self.session_factory() as session:
             offset = 0
             while True:
                 query = select(MemoryRecord).where(MemoryRecord.reflection_status != "archived")
+                if workspace_id:
+                    query = query.where(MemoryRecord.workspace_id == workspace_id)
                 if agent_id:
                     query = query.where(MemoryRecord.agent_id == agent_id)
 
@@ -71,7 +84,7 @@ class DecayEngine:
 
                     policy_name = str(memory.metadata_.get("decay_policy", self.settings.default_decay_policy))
                     policy = self.policy_registry.get(policy_name)
-                    created_at = memory.created_at if memory.created_at.tzinfo else memory.created_at.replace(tzinfo=timezone.utc)
+                    created_at = memory.created_at if memory.created_at.tzinfo else memory.created_at.replace(tzinfo=UTC)
                     age_days = max(0.0, (now - created_at).total_seconds() / 86_400)
                     score_before = memory.composite_score
                     new_score = policy.compute(score_before, age_days)
@@ -87,6 +100,7 @@ class DecayEngine:
                     session.add(
                         DecayRecord(
                             id=self._new_id(),
+                            workspace_id=memory.workspace_id,
                             memory_id=memory.id,
                             agent_id=memory.agent_id,
                             decay_policy=policy_name,
@@ -101,6 +115,7 @@ class DecayEngine:
             await session.commit()
 
         return DecayCycleResult(
+            workspace_id=workspace_id,
             agent_id=agent_id,
             processed=processed,
             decayed=decayed,
@@ -110,13 +125,24 @@ class DecayEngine:
             run_at=now,
         )
 
-    async def preview_decay(self, agent_id: str) -> list[DecayPreview]:
-        now = datetime.now(timezone.utc)
+    async def preview_decay(
+        self,
+        workspace_id: uuid.UUID | str,
+        agent_id: str | None = None,
+    ) -> list[DecayPreview]:
+        # Backwards compatibility: preview_decay(agent_id)
+        if agent_id is None and isinstance(workspace_id, str):
+            agent_id = workspace_id
+            workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
+
+        assert agent_id is not None
+        now = datetime.now(UTC)
         previews: list[DecayPreview] = []
         async with self.session_factory() as session:
             result = await session.execute(
                 select(MemoryRecord).where(
                     MemoryRecord.agent_id == agent_id,
+                    MemoryRecord.workspace_id == workspace_id,
                     MemoryRecord.reflection_status != "archived",
                 )
             )
@@ -127,7 +153,7 @@ class DecayEngine:
                     continue
                 policy_name = str(memory.metadata_.get("decay_policy", self.settings.default_decay_policy))
                 policy = self.policy_registry.get(policy_name)
-                created_at = memory.created_at if memory.created_at.tzinfo else memory.created_at.replace(tzinfo=timezone.utc)
+                created_at = memory.created_at if memory.created_at.tzinfo else memory.created_at.replace(tzinfo=UTC)
                 age_days = max(0.0, (now - created_at).total_seconds() / 86_400)
                 projected = policy.compute(memory.composite_score, age_days)
                 previews.append(
@@ -152,7 +178,7 @@ class DecayEngine:
             memory.reflection_status = "reflected"
             memory.composite_score = max(0.5, previous)
             memory.metadata_["restored_reason"] = reason
-            memory.updated_at = datetime.now(timezone.utc)
+            memory.updated_at = datetime.now(UTC)
 
             await session.commit()
             return True

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import UTC
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -28,7 +28,7 @@ class ReflectScheduler:
         self.settings = settings
         self.decay_engine = decay_engine
         self.reflection_pipeline = reflection_pipeline
-        self._scheduler = AsyncIOScheduler(timezone=timezone.utc)
+        self._scheduler = AsyncIOScheduler(timezone=UTC)
 
     def start(self) -> None:
         self._scheduler.add_job(
@@ -75,13 +75,15 @@ class ReflectScheduler:
 
             async with self.decay_engine.session_factory() as session:
                 result = await session.execute(
-                    select(distinct(MemoryRecord.agent_id)).where(MemoryRecord.reflection_status == "pending")
+                    select(distinct(MemoryRecord.workspace_id), MemoryRecord.agent_id).where(
+                        MemoryRecord.reflection_status == "pending"
+                    )
                 )
-                agent_ids = [row[0] for row in result.all()]
+                workspace_agent_pairs = [(str(row[0]), row[1]) for row in result.all()]
 
-            for agent_id in agent_ids:
-                reflect_agent_task.delay(agent_id)
-            logger.info("Reflection enqueue complete", agents=len(agent_ids))
+            for workspace_id, agent_id in workspace_agent_pairs:
+                reflect_agent_task.delay(workspace_id, agent_id)
+            logger.info("Reflection enqueue complete", agents=len(workspace_agent_pairs))
         except Exception as exc:
             logger.exception("reflection_all_agents job failed", error=str(exc))
 
@@ -99,12 +101,12 @@ class ReflectScheduler:
             from claw_reflect.workers.tasks.profile import update_profile_task
 
             async with self.decay_engine.session_factory() as session:
-                result = await session.execute(select(distinct(MemoryRecord.agent_id)))
-                agent_ids = [row[0] for row in result.all()]
+                result = await session.execute(select(distinct(MemoryRecord.workspace_id), MemoryRecord.agent_id))
+                workspace_agent_pairs = [(str(row[0]), row[1]) for row in result.all()]
 
-            for agent_id in agent_ids:
-                update_profile_task.delay(agent_id)
-            logger.info("Profile updates enqueued", agents=len(agent_ids))
+            for workspace_id, agent_id in workspace_agent_pairs:
+                update_profile_task.delay(workspace_id, agent_id)
+            logger.info("Profile updates enqueued", agents=len(workspace_agent_pairs))
         except Exception as exc:
             logger.exception("profile_update job failed", error=str(exc))
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
 
@@ -27,6 +27,7 @@ class MemoryPromotionPipeline(BasePipeline):
             result = await session.execute(
                 select(MemoryRecord)
                 .where(
+                    MemoryRecord.workspace_id == ctx.workspace_id,
                     MemoryRecord.agent_id == ctx.agent_id,
                     MemoryRecord.is_promoted.is_(False),
                     MemoryRecord.reflection_status == "reflected",
@@ -45,6 +46,7 @@ class MemoryPromotionPipeline(BasePipeline):
                 unresolved = await session.scalar(
                     select(ContradictionRecord.id)
                     .where(
+                        ContradictionRecord.workspace_id == ctx.workspace_id,
                         ContradictionRecord.resolved.is_(False),
                         or_(
                             ContradictionRecord.memory_id_a == memory.id,
@@ -61,11 +63,12 @@ class MemoryPromotionPipeline(BasePipeline):
 
                 if not ctx.dry_run:
                     memory.is_promoted = True
-                    memory.promoted_at = datetime.now(timezone.utc)
+                    memory.promoted_at = datetime.now(UTC)
                     reflection_results.append(
                         ReflectionResult(
                             id=self.new_id(),
                             job_id=ctx.job_id,
+                            workspace_id=ctx.workspace_id,
                             memory_id=memory.id,
                             result_type="promotion",
                             output={"promoted": True, "composite_score": memory.composite_score},
@@ -97,6 +100,7 @@ class MemoryPromotionPipeline(BasePipeline):
     async def demote_stale_promoted(self, ctx: PipelineContext, session) -> None:
         result = await session.execute(
             select(MemoryRecord).where(
+                MemoryRecord.workspace_id == ctx.workspace_id,
                 MemoryRecord.agent_id == ctx.agent_id,
                 MemoryRecord.is_promoted.is_(True),
                 MemoryRecord.composite_score < self.DEMOTION_THRESHOLD,

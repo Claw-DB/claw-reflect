@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_, select
@@ -31,10 +31,11 @@ class ContradictionDetectionPipeline(BasePipeline):
         details: list[dict] = []
 
         async with self.session_factory() as session:
-            since = datetime.now(timezone.utc) - timedelta(days=7)
+            since = datetime.now(UTC) - timedelta(days=7)
             result = await session.execute(
                 select(MemoryRecord)
                 .where(
+                    MemoryRecord.workspace_id == ctx.workspace_id,
                     MemoryRecord.agent_id == ctx.agent_id,
                     MemoryRecord.created_at >= since,
                     MemoryRecord.reflection_status.in_(["pending", "reflected"]),
@@ -52,6 +53,7 @@ class ContradictionDetectionPipeline(BasePipeline):
 
                 existing = await session.scalar(
                     select(ContradictionRecord.id).where(
+                        ContradictionRecord.workspace_id == ctx.workspace_id,
                         ContradictionRecord.agent_id == ctx.agent_id,
                         or_(
                             and_(
@@ -94,6 +96,7 @@ class ContradictionDetectionPipeline(BasePipeline):
                     if not ctx.dry_run:
                         contradiction = ContradictionRecord(
                             id=self.new_id(),
+                            workspace_id=ctx.workspace_id,
                             agent_id=ctx.agent_id,
                             memory_id_a=memory_a.id,
                             memory_id_b=memory_b.id,
@@ -147,14 +150,14 @@ class ContradictionDetectionPipeline(BasePipeline):
         if memory_a.reflection_status == "archived" and memory_b.reflection_status != "archived":
             contradiction.resolved = True
             contradiction.resolution_strategy = "keep_b"
-            contradiction.resolved_at = datetime.now(timezone.utc)
+            contradiction.resolved_at = datetime.now(UTC)
             contradiction.winner_memory_id = memory_b.id
             return True
 
         if memory_b.reflection_status == "archived" and memory_a.reflection_status != "archived":
             contradiction.resolved = True
             contradiction.resolution_strategy = "keep_a"
-            contradiction.resolved_at = datetime.now(timezone.utc)
+            contradiction.resolved_at = datetime.now(UTC)
             contradiction.winner_memory_id = memory_a.id
             return True
 

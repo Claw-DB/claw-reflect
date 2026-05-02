@@ -20,8 +20,7 @@ def upgrade() -> None:
     """Enable pg_trgm extension and create GIN trigram index on memory content."""
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
     op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_memory_content_trgm "
-        "ON memory_records USING GIN (content gin_trgm_ops)"
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_memory_content_trgm ON memory_records USING GIN (content gin_trgm_ops)"
     )
 
 

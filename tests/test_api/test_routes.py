@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -94,7 +94,7 @@ async def test_resolve_contradiction_updates_record(client, async_session):
 
 @pytest.mark.asyncio
 async def test_memory_batch_upsert_stores_records(client):
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     payload = {
         "agent_id": "A",
         "batch_id": "B1",
@@ -122,7 +122,15 @@ async def test_preview_dry_run_returns_estimates_without_writing(monkeypatch, cl
 
     class _Pipeline:
         async def preview(self, ctx):
-            return {"processed": 1, "updated": 0, "archived": 0, "promoted": 0, "contradictions": 0, "duplicates": 0, "preferences": 0}
+            return {
+                "processed": 1,
+                "updated": 0,
+                "archived": 0,
+                "promoted": 0,
+                "contradictions": 0,
+                "duplicates": 0,
+                "preferences": 0,
+            }
 
     monkeypatch.setattr(reflect, "FullReflectionPipeline", lambda *args, **kwargs: _Pipeline())
     resp = await client.post("/api/v1/reflect/trigger/dry-run", json={"agent_id": "A", "job_type": "full", "options": {}})
@@ -136,7 +144,7 @@ async def test_score_endpoint_returns_updated_scores(monkeypatch, client, async_
     from tests.conftest import MockLLMAdapter
 
     monkeypatch.setattr(reflect, "_build_llm_adapter", lambda: MockLLMAdapter())
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async_session.add(
         MemoryRecord(
             id="MEM0000000000000000005002",

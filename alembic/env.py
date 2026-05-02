@@ -5,8 +5,16 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
+
+import claw_reflect.models.api_key  # noqa: F401
+import claw_reflect.models.contradiction  # noqa: F401
+import claw_reflect.models.decay  # noqa: F401
+import claw_reflect.models.memory  # noqa: F401
+import claw_reflect.models.preference  # noqa: F401
+import claw_reflect.models.profile  # noqa: F401
+import claw_reflect.models.reflection  # noqa: F401
+from alembic import context
 
 # ---------------------------------------------------------------------------
 # Import all models so that Base.metadata is fully populated before
@@ -14,12 +22,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 # ---------------------------------------------------------------------------
 from claw_reflect.config import settings
 from claw_reflect.db.base import Base
-import claw_reflect.models.memory  # noqa: F401
-import claw_reflect.models.reflection  # noqa: F401
-import claw_reflect.models.preference  # noqa: F401
-import claw_reflect.models.contradiction  # noqa: F401
-import claw_reflect.models.profile  # noqa: F401
-import claw_reflect.models.decay  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Alembic Config object — gives access to values in alembic.ini

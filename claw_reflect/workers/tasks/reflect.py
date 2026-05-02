@@ -1,11 +1,14 @@
 """Celery tasks for triggering agent reflection and full reflection pipeline runs."""
+
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy import select
 
 from claw_reflect.config import settings
+from claw_reflect.db.session import session_factory
 from claw_reflect.llm.anthropic import AnthropicAdapter
 from claw_reflect.llm.ollama import OllamaAdapter
 from claw_reflect.llm.openai import OpenAIAdapter
@@ -15,7 +18,6 @@ from claw_reflect.models.reflection import ReflectionJob
 from claw_reflect.pipelines.base import PipelineContext
 from claw_reflect.pipelines.full_reflection import FullReflectionPipeline
 from claw_reflect.workers.celery_app import celery_app
-from claw_reflect.db.session import session_factory
 
 logger = get_logger(__name__)
 
@@ -45,9 +47,11 @@ def _build_llm_adapter():
         timeout=settings.llm_timeout_secs,
     )
 
+
 @celery_app.task(bind=True, max_retries=3, name="claw_reflect.workers.tasks.reflect.reflect_agent_task")
 def reflect_agent_task(
     self,
+    workspace_id: str,
     agent_id: str,
     job_type: str = "full",
     options: dict | None = None,
@@ -55,13 +59,15 @@ def reflect_agent_task(
     """Create a reflection job row, run pipeline, and persist final status."""
 
     async def _run() -> dict[str, object]:
+        workspace_uuid = UUID(workspace_id)
         async with session_factory() as session:
             job = ReflectionJob(
                 id=_new_id(),
+                workspace_id=workspace_uuid,
                 agent_id=agent_id,
                 status="running",
                 job_type=job_type,
-                started_at=datetime.now(timezone.utc),
+                started_at=datetime.now(UTC),
                 metadata_={"celery_task_id": self.request.id, "options": options or {}},
             )
             session.add(job)
@@ -71,6 +77,7 @@ def reflect_agent_task(
             llm = _build_llm_adapter()
             pipeline = FullReflectionPipeline(session_factory, llm, settings)
             ctx = PipelineContext(
+                workspace_id=workspace_uuid,
                 agent_id=agent_id,
                 job_id=job.id,
                 batch_size=int((options or {}).get("batch_size", settings.reflection_batch_size)),
@@ -83,7 +90,7 @@ def reflect_agent_task(
                 stored = await session.get(ReflectionJob, job.id)
                 if stored is not None:
                     stored.status = "completed"
-                    stored.completed_at = datetime.now(timezone.utc)
+                    stored.completed_at = datetime.now(UTC)
                     stored.memories_processed = result.total_processed
                     stored.memories_updated = result.total_updated
                     stored.memories_archived = result.total_archived
@@ -100,7 +107,7 @@ def reflect_agent_task(
                 stored = await session.get(ReflectionJob, job.id)
                 if stored is not None:
                     stored.status = "failed"
-                    stored.completed_at = datetime.now(timezone.utc)
+                    stored.completed_at = datetime.now(UTC)
                     stored.error_message = str(exc)
                 await session.commit()
             raise exc
@@ -119,14 +126,14 @@ def full_reflection_task() -> dict[str, object]:
     async def _run() -> dict[str, object]:
         async with session_factory() as session:
             result = await session.execute(
-                select(MemoryRecord.agent_id)
+                select(MemoryRecord.workspace_id, MemoryRecord.agent_id)
                 .where(MemoryRecord.reflection_status == "pending")
                 .distinct()
             )
-            agent_ids = [row[0] for row in result.all()]
+            work_agents = [(str(row[0]), row[1]) for row in result.all()]
 
-        for agent_id in agent_ids:
-            reflect_agent_task.delay(agent_id)
-        return {"enqueued": len(agent_ids), "agent_ids": agent_ids}
+        for workspace, agent_id in work_agents:
+            reflect_agent_task.delay(workspace, agent_id)
+        return {"enqueued": len(work_agents), "pairs": work_agents}
 
     return asyncio.run(_run())

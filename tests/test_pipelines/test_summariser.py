@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from claw_reflect.config import settings
 from claw_reflect.llm.base import LLMResponse
@@ -17,16 +17,16 @@ from claw_reflect.pipelines.summariser import SummarisationPipeline
 @pytest.fixture
 def session_factory(async_session: AsyncSession):
     from contextlib import asynccontextmanager
-    
+
     @asynccontextmanager
     async def _factory():
         yield async_session
-    
+
     return _factory
 
 
 def _memory(mem_id: str, session_id: str) -> MemoryRecord:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return MemoryRecord(
         id=mem_id,
         agent_id="AGT0000000000000000000001",
@@ -125,8 +125,8 @@ async def test_summariser_truncates_context_to_fit_window(async_session, session
             memory_type="message",
             metadata_={"session_id": "s30"},
             tags=[],
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             reflection_status="pending",
         )
     )

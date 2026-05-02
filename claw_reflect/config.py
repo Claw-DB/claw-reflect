@@ -68,9 +68,27 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     api_host: str = "0.0.0.0"
     api_port: int = 8090
+    env: str = "development"
     debug: bool = False
     log_level: str = "INFO"
     log_format: str = "json"  # json | console
+    max_request_size_bytes: int = 10 * 1024 * 1024
+
+    # ------------------------------------------------------------------
+    # Security
+    # ------------------------------------------------------------------
+    rate_limit_enabled: bool = True
+    rate_limit_storage_url: str | None = None
+
+    # ------------------------------------------------------------------
+    # Tracing
+    # ------------------------------------------------------------------
+    otel_endpoint: str | None = None
+
+    @property
+    def effective_rate_limit_storage_url(self) -> str:
+        """Return the resolved rate-limit storage backend URL."""
+        return self.rate_limit_storage_url or self.redis_url
 
 
 settings = Settings()  # type: ignore[call-arg]

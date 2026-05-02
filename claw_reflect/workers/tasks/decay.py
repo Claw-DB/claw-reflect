@@ -1,27 +1,37 @@
 """Celery tasks for applying decay to stale memories and archiving expired records."""
+
 import asyncio
+from uuid import UUID
 
 from sqlalchemy import update
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from claw_reflect.config import settings
+from claw_reflect.db.session import session_factory
 from claw_reflect.decay.engine import DecayEngine
 from claw_reflect.decay.policy import DecayPolicyRegistry
 from claw_reflect.logging import get_logger
 from claw_reflect.metrics.instruments import decay_cycles_total, memories_archived_total
 from claw_reflect.models.memory import MemoryRecord
 from claw_reflect.workers.celery_app import celery_app
-from claw_reflect.db.session import session_factory
 
 logger = get_logger(__name__)
 
+
 @celery_app.task(bind=True, name="claw_reflect.workers.tasks.decay.decay_stale_task")
-def decay_stale_task(self, agent_id: str | None = None) -> dict[str, object]:
+def decay_stale_task(
+    self,
+    workspace_id: str | None = None,
+    agent_id: str | None = None,
+) -> dict[str, object]:
     """Run a decay cycle and retry transient DB failures with exponential backoff."""
 
     async def _run() -> dict[str, object]:
         engine = DecayEngine(session_factory, settings, DecayPolicyRegistry)
-        result = await engine.run_decay_cycle(agent_id=agent_id)
+        result = await engine.run_decay_cycle(
+            workspace_id=UUID(workspace_id) if workspace_id else None,
+            agent_id=agent_id,
+        )
 
         label_agent = result.agent_id or "all"
         decay_cycles_total.labels(agent_id=label_agent).inc()
@@ -36,6 +46,7 @@ def decay_stale_task(self, agent_id: str | None = None) -> dict[str, object]:
             duration_ms=result.duration_ms,
         )
         return {
+            "workspace_id": str(result.workspace_id) if result.workspace_id else None,
             "agent_id": result.agent_id,
             "processed": result.processed,
             "decayed": result.decayed,

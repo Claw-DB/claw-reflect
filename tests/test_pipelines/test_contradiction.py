@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from claw_reflect.config import settings
 from claw_reflect.llm.base import LLMResponse
@@ -26,7 +26,7 @@ def session_factory(async_session: AsyncSession):
 
 
 def _mem(mem_id: str, content: str) -> MemoryRecord:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return MemoryRecord(
         id=mem_id,
         agent_id="AGT0000000000000000000001",
@@ -52,7 +52,12 @@ async def test_detector_creates_contradiction_record_when_llm_says_yes(async_ses
             finish_reason="stop",
         )
     )
-    async_session.add_all([_mem("MEM0000000000000000001001", "Alice likes tea and code."), _mem("MEM0000000000000000001002", "Alice hates tea and code.")])
+    async_session.add_all(
+        [
+            _mem("MEM0000000000000000001001", "Alice likes tea and code."),
+            _mem("MEM0000000000000000001002", "Alice hates tea and code."),
+        ]
+    )
     await async_session.commit()
 
     pipeline = ContradictionDetectionPipeline(session_factory, mock_llm, settings)
@@ -156,7 +161,7 @@ async def test_resolve_contradiction_updates_record(async_session):
 
     rec.resolved = True
     rec.resolution_strategy = "keep_a"
-    rec.resolved_at = datetime.now(timezone.utc)
+    rec.resolved_at = datetime.now(UTC)
     await async_session.commit()
     loaded = await async_session.get(ContradictionRecord, rec.id)
     assert loaded is not None and loaded.resolved is True

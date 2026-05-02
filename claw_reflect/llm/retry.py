@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
@@ -44,6 +45,7 @@ class LLMRetryPolicy:
         max_tokens: int,
     ) -> LLMResponse:
         try:
+
             @self.get_tenacity_retry()
             async def _call_primary() -> LLMResponse:
                 return await primary.complete(messages=messages, max_tokens=max_tokens)

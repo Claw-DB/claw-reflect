@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from claw_reflect.models.memory import MemoryRecord
 
@@ -17,8 +17,8 @@ class RecencyScorer:
         self._default_half_life_days = half_life_days
 
     def score(self, memory: MemoryRecord, now: datetime | None = None) -> float:
-        now_ts = now or datetime.now(timezone.utc)
-        created_at = memory.created_at if memory.created_at.tzinfo else memory.created_at.replace(tzinfo=timezone.utc)
+        now_ts = now or datetime.now(UTC)
+        created_at = memory.created_at if memory.created_at.tzinfo else memory.created_at.replace(tzinfo=UTC)
         age_days = max(0.0, (now_ts - created_at).total_seconds() / 86_400)
         if age_days < 1.0:
             return 1.0
@@ -40,7 +40,8 @@ class RecencyScorer:
         return float(lookup.get(memory_type, self._default_half_life_days))
 
     def days_since_created(self, memory: MemoryRecord) -> float:
+        created_at = memory.created_at if memory.created_at.tzinfo else memory.created_at.replace(tzinfo=UTC)
         return max(
             0.0,
-            (datetime.now(timezone.utc) - (memory.created_at if memory.created_at.tzinfo else memory.created_at.replace(tzinfo=timezone.utc))).total_seconds() / 86_400,
+            (datetime.now(UTC) - created_at).total_seconds() / 86_400,
         )

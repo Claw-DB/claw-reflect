@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Query, Request
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from claw_reflect.app_state import get_scheduler
+from claw_reflect.auth import get_workspace_id
 from claw_reflect.db.session import get_session
 from claw_reflect.models.reflection import ReflectionJob, ReflectionResult
-from fastapi import APIRouter
-
+from claw_reflect.rate_limit import limiter
 from claw_reflect.schemas.jobs import JobStatusResponse
 from claw_reflect.schemas.reflection import ReflectionJobOut, ReflectionResultOut
 from claw_reflect.workers.celery_app import celery_app
@@ -34,15 +36,23 @@ async def scheduled_jobs() -> list[dict]:
 
 
 @router.get("", summary="List reflection jobs")
+@limiter.limit("60/minute")
 async def list_jobs(
     request: Request,
     agent_id: str | None = None,
     status: str | None = None,
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> list[ReflectionJobOut]:
-    stmt = select(ReflectionJob).order_by(ReflectionJob.started_at.desc()).limit(limit).offset(offset)
+    stmt = (
+        select(ReflectionJob)
+        .where(ReflectionJob.workspace_id == workspace_id)
+        .order_by(ReflectionJob.started_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     if agent_id:
         stmt = stmt.where(ReflectionJob.agent_id == agent_id)
     if status:
@@ -52,12 +62,20 @@ async def list_jobs(
 
 
 @router.delete("/{job_id}", response_model=JobStatusResponse, summary="Cancel a pending/running job")
+@limiter.limit("60/minute")
 async def cancel_job(
     job_id: str,
     request: Request,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> JobStatusResponse:
-    job = await session.get(ReflectionJob, job_id)
+    row = await session.execute(
+        select(ReflectionJob).where(
+            ReflectionJob.id == job_id,
+            ReflectionJob.workspace_id == workspace_id,
+        )
+    )
+    job = row.scalar_one_or_none()
     if job is None:
         raise _error(request, 404, "Job not found")
     if job.status not in {"pending", "running"}:
@@ -74,16 +92,29 @@ async def cancel_job(
 
 
 @router.get("/{job_id}", summary="Get a reflection job and its result rows")
+@limiter.limit("60/minute")
 async def get_job_status(
     job_id: str,
     request: Request,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    job = await session.get(ReflectionJob, job_id)
+    job_row = await session.execute(
+        select(ReflectionJob).where(
+            ReflectionJob.id == job_id,
+            ReflectionJob.workspace_id == workspace_id,
+        )
+    )
+    job = job_row.scalar_one_or_none()
     if job is None:
         raise _error(request, 404, "Job not found")
 
-    result_rows = await session.execute(select(ReflectionResult).where(ReflectionResult.job_id == job_id))
+    result_rows = await session.execute(
+        select(ReflectionResult).where(
+            ReflectionResult.job_id == job_id,
+            ReflectionResult.workspace_id == workspace_id,
+        )
+    )
     results = list(result_rows.scalars().all())
     return {
         "job": ReflectionJobOut.model_validate(job),

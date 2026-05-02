@@ -40,5 +40,9 @@ htmlcov/
 # macOS
 .DS_Store
 
+# Rust build artifacts
+target/
+claw-reflect-client/target/
+
 # Alembic auto-generated (keep versions tracked)
 # alembic/versions/  <- intentionally not excluded

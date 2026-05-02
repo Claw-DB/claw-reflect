@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -14,7 +14,7 @@ from claw_reflect.scoring.recency import RecencyScorer
 
 
 def _memory(**kwargs) -> MemoryRecord:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     defaults = {
         "id": "MEM0000000000000000000001",
         "agent_id": "AGT0000000000000000000001",
@@ -32,21 +32,21 @@ def _memory(**kwargs) -> MemoryRecord:
 @pytest.mark.asyncio
 async def test_recency_score_fresh_memory_is_1():
     scorer = RecencyScorer()
-    score = scorer.score(_memory(created_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+    score = scorer.score(_memory(created_at=datetime.now(UTC) - timedelta(hours=1)))
     assert score == pytest.approx(1.0)
 
 
 @pytest.mark.asyncio
 async def test_recency_score_30_day_old_half_life_30_is_0_5():
     scorer = RecencyScorer(half_life_days=30)
-    score = scorer.score(_memory(created_at=datetime.now(timezone.utc) - timedelta(days=30), memory_type="session"))
+    score = scorer.score(_memory(created_at=datetime.now(UTC) - timedelta(days=30), memory_type="session"))
     assert score == pytest.approx(0.5, rel=0.05)
 
 
 @pytest.mark.asyncio
 async def test_recency_score_different_types_have_different_half_lives():
     scorer = RecencyScorer()
-    age = datetime.now(timezone.utc) - timedelta(days=10)
+    age = datetime.now(UTC) - timedelta(days=10)
     task_score = scorer.score(_memory(memory_type="task", created_at=age))
     context_score = scorer.score(_memory(memory_type="context", created_at=age))
     assert task_score > context_score

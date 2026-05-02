@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 import httpx
+from opentelemetry.propagate import inject
 
 from claw_reflect.llm.base import BaseLLMAdapter, LLMMessage, LLMResponse
 
@@ -39,11 +40,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         temperature: float = 0.2,
     ) -> LLMResponse:
         system_prompt = "\n\n".join(msg.content for msg in messages if msg.role == "system").strip()
-        payload_messages = [
-            {"role": msg.role, "content": msg.content}
-            for msg in messages
-            if msg.role in {"user", "assistant"}
-        ]
+        payload_messages = [{"role": msg.role, "content": msg.content} for msg in messages if msg.role in {"user", "assistant"}]
         payload: dict[str, object] = {
             "model": self._model,
             "max_tokens": max_tokens,
@@ -58,6 +55,7 @@ class AnthropicAdapter(BaseLLMAdapter):
             "anthropic-version": self._ANTHROPIC_VERSION,
             "content-type": "application/json",
         }
+        inject(headers)
 
         started = time.perf_counter()
         response = await self._client.post(f"{self._base_url}/v1/messages", json=payload, headers=headers)

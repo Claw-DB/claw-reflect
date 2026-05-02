@@ -7,7 +7,7 @@ import uuid
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 from sqlalchemy import and_, select, update
@@ -27,6 +27,7 @@ class PipelineContext:
     agent_id: str
     job_id: str
     batch_size: int
+    workspace_id: uuid.UUID = field(default_factory=lambda: uuid.UUID("00000000-0000-0000-0000-000000000000"))
     dry_run: bool = False
     options: dict = field(default_factory=dict)
 
@@ -67,6 +68,7 @@ class BasePipeline(ABC):
         extra_filters: list[Any] | None = None,
     ) -> list[MemoryRecord]:
         where = [
+            MemoryRecord.workspace_id == ctx.workspace_id,
             MemoryRecord.agent_id == ctx.agent_id,
             MemoryRecord.reflection_status == "pending",
         ]
@@ -74,10 +76,7 @@ class BasePipeline(ABC):
             where.extend(extra_filters)
 
         result = await session.execute(
-            select(MemoryRecord)
-            .where(and_(*where))
-            .order_by(MemoryRecord.created_at.asc())
-            .limit(ctx.batch_size)
+            select(MemoryRecord).where(and_(*where)).order_by(MemoryRecord.created_at.asc()).limit(ctx.batch_size)
         )
         return list(result.scalars().all())
 
@@ -90,18 +89,14 @@ class BasePipeline(ABC):
             .values(
                 reflection_status="reflected",
                 reflection_count=MemoryRecord.reflection_count + 1,
-                last_reflected_at=datetime.now(timezone.utc),
+                last_reflected_at=datetime.now(UTC),
             )
         )
 
     async def mark_archived(self, session: AsyncSession, memory_ids: list[str]) -> None:
         if not memory_ids:
             return
-        await session.execute(
-            update(MemoryRecord)
-            .where(MemoryRecord.id.in_(memory_ids))
-            .values(reflection_status="archived")
-        )
+        await session.execute(update(MemoryRecord).where(MemoryRecord.id.in_(memory_ids)).values(reflection_status="archived"))
 
     def emit_metric(self, name: str, value: float, labels: dict) -> None:
         if name == "reflection_memories_processed_total":

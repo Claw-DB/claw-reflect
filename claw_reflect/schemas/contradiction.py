@@ -27,7 +27,7 @@ class ContradictionOut(BaseModel):
 class ResolveContradictionRequest(BaseModel):
     """Request body for resolving a detected contradiction."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     contradiction_id: str
     strategy: Literal["keep_a", "keep_b", "merge", "discard_both"]

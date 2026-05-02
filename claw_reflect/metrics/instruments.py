@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 
+import redis
 from prometheus_client import Counter, Gauge, Histogram, Summary
 from sqlalchemy import func, select
 
+from claw_reflect.config import settings
 from claw_reflect.db.session import session_factory
 from claw_reflect.models.memory import MemoryRecord
 from claw_reflect.models.profile import AgentProfile
@@ -89,6 +91,35 @@ reflection_jobs_total = Counter(
     "reflection_jobs_total",
     "Reflection jobs created",
     ["job_type", "status"],
+)
+
+reflect_jobs_total = Counter(
+    "reflect_jobs_total",
+    "Reflection jobs by terminal status",
+    ["status"],
+)
+
+reflect_pipeline_duration_seconds = Histogram(
+    "reflect_pipeline_duration_seconds",
+    "Duration of reflection stages",
+    ["stage"],
+    buckets=(0.1, 0.5, 1, 2, 5, 10, 30, 60, 120),
+)
+
+reflect_llm_tokens_total = Counter(
+    "reflect_llm_tokens_total",
+    "Total LLM tokens consumed by provider",
+    ["provider"],
+)
+
+reflect_active_workers = Gauge(
+    "reflect_active_workers",
+    "Approximate active workers",
+)
+
+reflect_queue_depth = Gauge(
+    "reflect_queue_depth",
+    "Approximate celery queue depth from Redis",
 )
 
 pipeline_duration_seconds = Histogram(
@@ -193,6 +224,18 @@ def init_metrics() -> None:
     except RuntimeError:
         asyncio.run(_load_initial_gauges())
 
+    refresh_queue_depth()
+
+
+def refresh_queue_depth() -> None:
+    """Update queue-depth gauge from Redis LLEN of celery queue."""
+    try:
+        client = redis.Redis.from_url(settings.redis_url)
+        depth = int(client.llen("celery"))
+        reflect_queue_depth.set(depth)
+    except Exception:
+        reflect_queue_depth.set(0)
+
 
 def observe_llm_call(
     provider: str,
@@ -213,3 +256,4 @@ def observe_llm_call(
     llm_request_duration_seconds.labels(provider=provider, model=model).observe(duration_s)
     llm_tokens_used.labels(provider=provider, model=model, direction="input").observe(input_tokens)
     llm_tokens_used.labels(provider=provider, model=model, direction="output").observe(output_tokens)
+    reflect_llm_tokens_total.labels(provider=provider).inc(input_tokens + output_tokens)

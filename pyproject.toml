@@ -4,7 +4,18 @@ version = "0.1.0"
 requires-python = ">=3.11"
 description = "Autonomous memory distillation engine for ClawDB"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
+authors = [{ name = "Claw-DB Team" }]
+keywords = ["ai", "agents", "memory", "distillation", "clawdb"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+]
+urls = { Repository = "https://github.com/Claw-DB/claw-reflect" }
+
+[project.scripts]
+claw-reflect = "claw_reflect.main:main"
 
 dependencies = [
     "fastapi>=0.111",
@@ -25,6 +36,14 @@ dependencies = [
     "python-ulid>=2.2",
     "apscheduler>=3.10",
     "croniter>=2.0",
+    "blake3>=1.0.4",
+    "slowapi>=0.1.9",
+    "limits>=3.13.0",
+    "opentelemetry-sdk>=1.30.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.51b0",
+    "opentelemetry-instrumentation-redis>=0.51b0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.30.0",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +58,7 @@ dev = [
     "pip-audit>=2.7",
     "freezegun>=1.4",
     "respx>=0.21",
+    "pytest-docker-compose>=3.2.1",
 ]
 
 [build-system]
@@ -54,9 +74,14 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--cov=claw_reflect --cov-report=term-missing"
 
+[tool.coverage.run]
+omit = [
+    "claw_reflect/workers/tasks/*",
+]
+
 [tool.ruff]
-line-length = 100
-select = ["E", "F", "I", "UP", "B"]
+line-length = 130
+select = ["E", "F", "I", "UP"]
 
 [tool.mypy]
 strict = true
