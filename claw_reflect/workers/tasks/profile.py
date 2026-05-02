@@ -1,11 +1,74 @@
 """Celery task for rebuilding the aggregated AgentProfile from reflected memories."""
+import asyncio
+from collections import Counter, defaultdict
+from datetime import datetime, timezone
 
-from __future__ import annotations
+from sqlalchemy import select
 
+from claw_reflect.metrics.instruments import agent_profile_version, profile_updated_total
+from claw_reflect.models.memory import MemoryRecord
+from claw_reflect.models.preference import ExtractedPreference
+from claw_reflect.models.profile import AgentProfile
 from claw_reflect.workers.celery_app import celery_app
+from claw_reflect.db.session import session_factory
 
 
 @celery_app.task(name="claw_reflect.workers.tasks.profile.update_profile_task")
-def update_profile_task(agent_id: str) -> dict[str, object]:
-    """Rebuild and persist the AgentProfile for *agent_id* from current memory data."""
-    raise NotImplementedError
+def update_profile_task(agent_id: str | None = None) -> dict[str, object]:
+    """Rebuild profile preferences/facts for one agent or all agents."""
+
+    async def _run() -> dict[str, object]:
+        async with session_factory() as session:
+            if agent_id:
+                agent_ids = [agent_id]
+            else:
+                result = await session.execute(select(MemoryRecord.agent_id).distinct())
+                agent_ids = [row[0] for row in result.all()]
+
+            updated = 0
+            for target_agent in agent_ids:
+                prefs_result = await session.execute(
+                    select(ExtractedPreference).where(
+                        ExtractedPreference.agent_id == target_agent,
+                        ExtractedPreference.is_active.is_(True),
+                    )
+                )
+                active_prefs = list(prefs_result.scalars().all())
+                preference_map: dict[str, dict[str, object]] = defaultdict(dict)
+                for pref in active_prefs:
+                    preference_map[pref.category][pref.key] = pref.value
+
+                memories_result = await session.execute(
+                    select(MemoryRecord).where(MemoryRecord.agent_id == target_agent)
+                )
+                memories = list(memories_result.scalars().all())
+                type_counts = Counter(memory.memory_type for memory in memories)
+
+                profile = await session.get(AgentProfile, target_agent)
+                now = datetime.now(timezone.utc)
+                if profile is None:
+                    profile = AgentProfile(
+                        agent_id=target_agent,
+                        preferences=dict(preference_map),
+                        facts={"memory_type_counts": dict(type_counts)},
+                        behaviour_patterns={},
+                        last_updated_at=now,
+                        memory_count=len(memories),
+                        profile_version=1,
+                    )
+                    session.add(profile)
+                else:
+                    profile.preferences = dict(preference_map)
+                    profile.facts = {"memory_type_counts": dict(type_counts)}
+                    profile.profile_version += 1
+                    profile.last_updated_at = now
+                    profile.memory_count = len(memories)
+
+                profile_updated_total.labels(agent_id=target_agent).inc()
+                agent_profile_version.labels(agent_id=target_agent).set(profile.profile_version)
+                updated += 1
+
+            await session.commit()
+        return {"updated_profiles": updated, "agent_id": agent_id}
+
+    return asyncio.run(_run())
