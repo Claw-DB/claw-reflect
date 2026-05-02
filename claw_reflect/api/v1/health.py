@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime, timezone
+
+import redis
 from fastapi import APIRouter
+from fastapi import Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from claw_reflect.config import settings
+from claw_reflect.db.session import get_session
 
 router = APIRouter()
 
@@ -12,12 +22,27 @@ router = APIRouter()
 @router.get("/health", summary="Liveness probe")
 async def health() -> dict[str, str]:
     """Return service liveness status."""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "version": "0.1.0",
+    }
 
 
 @router.get("/ready", summary="Readiness probe")
-async def ready() -> dict[str, str]:
-    """Return service readiness status."""
+async def ready(session: AsyncSession = Depends(get_session)) -> dict[str, str]:
+    """Return readiness status; fail if DB or Redis is unavailable."""
+    try:
+        await session.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={"status": "db_down", "error": str(exc)}) from exc
+
+    try:
+        redis_client = redis.Redis.from_url(settings.redis_url)
+        await asyncio.to_thread(redis_client.ping)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={"status": "redis_down", "error": str(exc)}) from exc
+
     return {"status": "ready"}
 
 

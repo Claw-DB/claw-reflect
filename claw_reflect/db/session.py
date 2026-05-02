@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from claw_reflect.db.base import AsyncSessionLocal
 
+session_factory = AsyncSessionLocal
+
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     """Yield an :class:`AsyncSession` and guarantee it is closed after the request."""

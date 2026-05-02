@@ -20,13 +20,15 @@ class Base(DeclarativeBase):
 # Engine
 # ---------------------------------------------------------------------------
 
-engine = create_async_engine(
-    settings.database_url,
-    pool_size=settings.database_pool_size,
-    max_overflow=settings.database_max_overflow,
-    pool_pre_ping=True,
-    echo=settings.debug,
-)
+_engine_kwargs: dict[str, object] = {
+    "pool_pre_ping": True,
+    "echo": settings.debug,
+}
+if not settings.database_url.startswith("sqlite"):
+    _engine_kwargs["pool_size"] = settings.database_pool_size
+    _engine_kwargs["max_overflow"] = settings.database_max_overflow
+
+engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
 # ---------------------------------------------------------------------------
 # Session factory
