@@ -25,45 +25,51 @@ def update_profile_task(
     async def _run() -> dict[str, object]:
         async with session_factory() as session:
             workspace_uuid = UUID(workspace_id) if workspace_id else None
-            if agent_id:
-                agent_ids = [agent_id]
+            if agent_id and workspace_uuid is not None:
+                targets = [(workspace_uuid, agent_id)]
+            elif agent_id:
+                result = await session.execute(
+                    select(MemoryRecord.workspace_id, MemoryRecord.agent_id).where(MemoryRecord.agent_id == agent_id).distinct()
+                )
+                targets = [(row[0], row[1]) for row in result.all()]
             else:
-                stmt = select(MemoryRecord.agent_id).distinct()
+                stmt = select(MemoryRecord.workspace_id, MemoryRecord.agent_id).distinct()
                 if workspace_uuid:
                     stmt = stmt.where(MemoryRecord.workspace_id == workspace_uuid)
                 result = await session.execute(stmt)
-                agent_ids = [row[0] for row in result.all()]
+                targets = [(row[0], row[1]) for row in result.all()]
 
             updated = 0
-            for target_agent in agent_ids:
+            for target_workspace, target_agent in targets:
                 pref_stmt = select(ExtractedPreference).where(
                     ExtractedPreference.agent_id == target_agent,
+                    ExtractedPreference.workspace_id == target_workspace,
                     ExtractedPreference.is_active.is_(True),
                 )
-                if workspace_uuid:
-                    pref_stmt = pref_stmt.where(ExtractedPreference.workspace_id == workspace_uuid)
                 prefs_result = await session.execute(pref_stmt)
                 active_prefs = list(prefs_result.scalars().all())
                 preference_map: dict[str, dict[str, object]] = defaultdict(dict)
                 for pref in active_prefs:
                     preference_map[pref.category][pref.key] = pref.value
 
-                memory_stmt = select(MemoryRecord).where(MemoryRecord.agent_id == target_agent)
-                if workspace_uuid:
-                    memory_stmt = memory_stmt.where(MemoryRecord.workspace_id == workspace_uuid)
+                memory_stmt = select(MemoryRecord).where(
+                    MemoryRecord.agent_id == target_agent,
+                    MemoryRecord.workspace_id == target_workspace,
+                )
                 memories_result = await session.execute(memory_stmt)
                 memories = list(memories_result.scalars().all())
                 type_counts = Counter(memory.memory_type for memory in memories)
 
-                profile_stmt = select(AgentProfile).where(AgentProfile.agent_id == target_agent)
-                if workspace_uuid:
-                    profile_stmt = profile_stmt.where(AgentProfile.workspace_id == workspace_uuid)
+                profile_stmt = select(AgentProfile).where(
+                    AgentProfile.agent_id == target_agent,
+                    AgentProfile.workspace_id == target_workspace,
+                )
                 profile_result = await session.execute(profile_stmt)
                 profile = profile_result.scalar_one_or_none()
                 now = datetime.now(UTC)
                 if profile is None:
                     profile = AgentProfile(
-                        workspace_id=workspace_uuid,
+                        workspace_id=target_workspace,
                         agent_id=target_agent,
                         preferences=dict(preference_map),
                         facts={"memory_type_counts": dict(type_counts)},

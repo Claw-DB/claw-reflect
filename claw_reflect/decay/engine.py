@@ -50,13 +50,14 @@ class DecayEngine:
 
     async def run_decay_cycle(
         self,
-        workspace_id: uuid.UUID | None = None,
+        workspace_id: uuid.UUID | str | None = None,
         agent_id: str | None = None,
     ) -> DecayCycleResult:
         # Backwards compatibility: older callsites passed agent_id as first positional arg.
         if isinstance(workspace_id, str) and agent_id is None:
             agent_id = workspace_id
             workspace_id = None
+        resolved_workspace_id = workspace_id if isinstance(workspace_id, uuid.UUID) else None
 
         started = time.perf_counter()
         processed = decayed = archived = skipped_promoted = 0
@@ -66,8 +67,8 @@ class DecayEngine:
             offset = 0
             while True:
                 query = select(MemoryRecord).where(MemoryRecord.reflection_status != "archived")
-                if workspace_id:
-                    query = query.where(MemoryRecord.workspace_id == workspace_id)
+                if resolved_workspace_id:
+                    query = query.where(MemoryRecord.workspace_id == resolved_workspace_id)
                 if agent_id:
                     query = query.where(MemoryRecord.agent_id == agent_id)
 
@@ -115,7 +116,7 @@ class DecayEngine:
             await session.commit()
 
         return DecayCycleResult(
-            workspace_id=workspace_id,
+            workspace_id=resolved_workspace_id,
             agent_id=agent_id,
             processed=processed,
             decayed=decayed,

@@ -28,7 +28,7 @@ class ContradictionDetectionPipeline(BasePipeline):
     async def run(self, ctx: PipelineContext) -> PipelineResult:
         started = time.perf_counter()
         processed = updated = archived = failed = 0
-        details: list[dict] = []
+        details: list[dict[str, object]] = []
 
         async with self.session_factory() as session:
             since = datetime.now(UTC) - timedelta(days=7)
@@ -142,8 +142,18 @@ class ContradictionDetectionPipeline(BasePipeline):
         return pairs
 
     async def auto_resolve_obvious(self, session: AsyncSession, contradiction: ContradictionRecord) -> bool:
-        memory_a = await session.get(MemoryRecord, contradiction.memory_id_a)
-        memory_b = await session.get(MemoryRecord, contradiction.memory_id_b)
+        memory_a = await session.scalar(
+            select(MemoryRecord).where(
+                MemoryRecord.workspace_id == contradiction.workspace_id,
+                MemoryRecord.id == contradiction.memory_id_a,
+            )
+        )
+        memory_b = await session.scalar(
+            select(MemoryRecord).where(
+                MemoryRecord.workspace_id == contradiction.workspace_id,
+                MemoryRecord.id == contradiction.memory_id_b,
+            )
+        )
         if memory_a is None or memory_b is None:
             return False
 

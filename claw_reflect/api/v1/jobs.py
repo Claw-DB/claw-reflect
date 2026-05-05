@@ -28,7 +28,7 @@ def _error(request: Request, status_code: int, message: str) -> HTTPException:
 
 
 @router.get("/scheduled", summary="List APScheduler jobs")
-async def scheduled_jobs() -> list[dict]:
+async def scheduled_jobs() -> list[dict[str, str | None]]:
     scheduler = get_scheduler()
     if scheduler is None:
         return []
@@ -98,7 +98,7 @@ async def get_job_status(
     request: Request,
     workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> dict[str, object]:
     job_row = await session.execute(
         select(ReflectionJob).where(
             ReflectionJob.id == job_id,

@@ -28,7 +28,7 @@ class SummarisationPipeline(BasePipeline):
     async def run(self, ctx: PipelineContext) -> PipelineResult:
         started = time.perf_counter()
         processed = updated = archived = failed = 0
-        details: list[dict] = []
+        details: list[dict[str, object]] = []
 
         async with self.session_factory() as session:
             memories = await self.fetch_pending_memories(
@@ -99,7 +99,7 @@ class SummarisationPipeline(BasePipeline):
                         session.add(summary_memory)
 
                         archived_ids = [m.id for m in batch]
-                        await self.mark_archived(session, archived_ids)
+                        await self.mark_archived(session, ctx.workspace_id, archived_ids)
                         archived += len(archived_ids)
                         updated += 1
 

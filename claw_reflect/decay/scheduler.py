@@ -110,8 +110,8 @@ class ReflectScheduler:
         except Exception as exc:
             logger.exception("profile_update job failed", error=str(exc))
 
-    def get_scheduled_jobs(self) -> list[dict]:
-        jobs = []
+    def get_scheduled_jobs(self) -> list[dict[str, str | None]]:
+        jobs: list[dict[str, str | None]] = []
         for job in self._scheduler.get_jobs():
             jobs.append(
                 {

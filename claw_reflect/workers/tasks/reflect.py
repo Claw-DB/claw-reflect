@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from sqlalchemy import select
 from claw_reflect.config import settings
 from claw_reflect.db.session import session_factory
 from claw_reflect.llm.anthropic import AnthropicAdapter
+from claw_reflect.llm.base import BaseLLMAdapter
 from claw_reflect.llm.ollama import OllamaAdapter
 from claw_reflect.llm.openai import OpenAIAdapter
 from claw_reflect.logging import get_logger
@@ -26,7 +28,7 @@ def _new_id() -> str:
     return uuid.uuid4().hex[:26]
 
 
-def _build_llm_adapter():
+def _build_llm_adapter() -> BaseLLMAdapter:
     if settings.llm_provider == "anthropic":
         return AnthropicAdapter(
             api_key=settings.llm_api_key.get_secret_value(),
@@ -50,11 +52,11 @@ def _build_llm_adapter():
 
 @celery_app.task(bind=True, max_retries=3, name="claw_reflect.workers.tasks.reflect.reflect_agent_task")
 def reflect_agent_task(
-    self,
+    self: Any,
     workspace_id: str,
     agent_id: str,
     job_type: str = "full",
-    options: dict | None = None,
+    options: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Create a reflection job row, run pipeline, and persist final status."""
 
@@ -76,11 +78,14 @@ def reflect_agent_task(
         try:
             llm = _build_llm_adapter()
             pipeline = FullReflectionPipeline(session_factory, llm, settings)
+            batch_size_value = (options or {}).get("batch_size", settings.reflection_batch_size)
             ctx = PipelineContext(
                 workspace_id=workspace_uuid,
                 agent_id=agent_id,
                 job_id=job.id,
-                batch_size=int((options or {}).get("batch_size", settings.reflection_batch_size)),
+                batch_size=(
+                    int(batch_size_value) if isinstance(batch_size_value, (int, float, str)) else settings.reflection_batch_size
+                ),
                 dry_run=bool((options or {}).get("dry_run", False)),
                 options=options or {},
             )

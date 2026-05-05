@@ -1,6 +1,7 @@
 """Celery tasks for applying decay to stale memories and archiving expired records."""
 
 import asyncio
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import update
@@ -20,14 +21,14 @@ logger = get_logger(__name__)
 
 @celery_app.task(bind=True, name="claw_reflect.workers.tasks.decay.decay_stale_task")
 def decay_stale_task(
-    self,
+    self: Any,
     workspace_id: str | None = None,
     agent_id: str | None = None,
 ) -> dict[str, object]:
     """Run a decay cycle and retry transient DB failures with exponential backoff."""
 
     async def _run() -> dict[str, object]:
-        engine = DecayEngine(session_factory, settings, DecayPolicyRegistry)
+        engine = DecayEngine(session_factory, settings, DecayPolicyRegistry())
         result = await engine.run_decay_cycle(
             workspace_id=UUID(workspace_id) if workspace_id else None,
             agent_id=agent_id,
@@ -77,7 +78,7 @@ def archive_expired_task(agent_id: str) -> dict[str, object]:
                 .values(reflection_status="archived")
             )
             await session.commit()
-        archived = int(result.rowcount or 0)
+        archived = int(getattr(result, "rowcount", 0) or 0)
         memories_archived_total.labels(agent_id=agent_id, reason="decay").inc(archived)
         return {"agent_id": agent_id, "archived": archived}
 

@@ -47,7 +47,12 @@ docker-compose up --build
 2. Ingest memories:
 
 ```bash
+/Users/ginmax/claw-reflect/.venv/bin/python scripts/create_api_key.py \
+	--workspace-id 00000000-0000-0000-0000-000000000001 \
+	--label local-dev
+
 curl -X POST http://localhost:8090/api/v1/reflect/memories \
+	-H 'X-Claw-Api-Key: <printed-key>' \
 	-H 'Content-Type: application/json' \
 	-d '{
 		"agent_id": "agent_1",
@@ -69,9 +74,13 @@ curl -X POST http://localhost:8090/api/v1/reflect/memories \
 
 ```bash
 curl -X POST http://localhost:8090/api/v1/reflect/trigger \
+	-H 'X-Claw-Api-Key: <printed-key>' \
 	-H 'Content-Type: application/json' \
 	-d '{"agent_id":"agent_1","job_type":"full","options":{}}'
 ```
+
+All non-health API routes under `/api/v1` require `X-Claw-Api-Key`.
+Only `GET /api/v1/health`, `GET /api/v1/ready`, and `GET /api/v1/metrics` are intentionally unauthenticated.
 
 ## API Reference Summary
 
@@ -140,7 +149,7 @@ Apply first matching threshold from configured steps:
 
 | Variable | Description | Example |
 | --- | --- | --- |
-| `REFLECT_DATABASE_URL` | SQLAlchemy async DB URL | `postgresql+asyncpg://postgres:postgres@postgres:5432/clawreflect` |
+| `REFLECT_DATABASE_URL` | SQLAlchemy async DB URL | `postgresql+asyncpg://<user>:<password>@postgres:5432/<db>` |
 | `REFLECT_REDIS_URL` | Redis broker/backend URL | `redis://redis:6379/0` |
 | `REFLECT_CELERY_CONCURRENCY` | Celery worker concurrency | `4` |
 | `REFLECT_LLM_PROVIDER` | LLM provider name | `anthropic` |

@@ -62,6 +62,8 @@ class StepDecayPolicy(DecayPolicy):
     name = "step"
 
     def __init__(self, steps: list[tuple[float, float]] | None = None, half_life_days: float | None = None) -> None:
+        self._half_life_days: float | None
+        self.steps: list[tuple[float, float]] = []
         if half_life_days is not None:
             self._half_life_days = half_life_days
             self._steps_mode = "half_life"
@@ -72,7 +74,8 @@ class StepDecayPolicy(DecayPolicy):
 
     def compute(self, current_score: float, age_days: float) -> float:
         if self._steps_mode == "half_life":
-            periods = int(age_days // self._half_life_days)  # type: ignore[operator]
+            assert self._half_life_days is not None
+            periods = int(age_days // self._half_life_days)
             return _clamp(current_score * (0.5**periods), 0.0, 1.0)
         multiplier = 1.0
         for threshold, step_multiplier in self.steps:
@@ -85,12 +88,11 @@ class StepDecayPolicy(DecayPolicy):
         if current_score <= archive_threshold:
             return 0.0
         if self._steps_mode == "half_life":
-            import math
-
+            assert self._half_life_days is not None
             if archive_threshold <= 0:
                 return None
             periods = math.ceil(math.log(archive_threshold / current_score) / math.log(0.5))
-            return periods * self._half_life_days  # type: ignore[operator]
+            return periods * self._half_life_days
         for threshold, step_multiplier in self.steps:
             if current_score * step_multiplier <= archive_threshold:
                 return threshold

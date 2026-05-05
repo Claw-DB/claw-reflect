@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Integer, String, Uuid
+from sqlalchemy import JSON, DateTime, Integer, PrimaryKeyConstraint, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from claw_reflect.db.base import Base
@@ -16,12 +16,14 @@ class AgentProfile(Base):
     """Consolidated long-term knowledge profile built from an agent's reflected memory corpus."""
 
     __tablename__ = "agent_profiles"
+    __table_args__ = (PrimaryKeyConstraint("workspace_id", "agent_id", name="pk_agent_profiles"),)
 
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
         nullable=False,
         index=True,
         default=lambda: uuid.UUID("00000000-0000-0000-0000-000000000000"),
+        primary_key=True,
     )
     agent_id: Mapped[str] = mapped_column(String(26), primary_key=True)
     preferences: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)

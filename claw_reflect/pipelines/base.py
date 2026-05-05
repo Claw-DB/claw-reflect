@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -29,7 +30,7 @@ class PipelineContext:
     batch_size: int
     workspace_id: uuid.UUID = field(default_factory=lambda: uuid.UUID("00000000-0000-0000-0000-000000000000"))
     dry_run: bool = False
-    options: dict = field(default_factory=dict)
+    options: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -42,7 +43,7 @@ class PipelineResult:
     archived: int
     failed: int
     duration_ms: float
-    details: list[dict]
+    details: list[dict[str, object]]
 
 
 class BasePipeline(ABC):
@@ -59,7 +60,7 @@ class BasePipeline(ABC):
         self.settings = settings
 
     @abstractmethod
-    async def run(self, ctx: PipelineContext) -> PipelineResult: ...
+    async def run(self, ctx: PipelineContext) -> PipelineResult | Any: ...
 
     async def fetch_pending_memories(
         self,
@@ -80,12 +81,15 @@ class BasePipeline(ABC):
         )
         return list(result.scalars().all())
 
-    async def mark_reflected(self, session: AsyncSession, memory_ids: list[str]) -> None:
+    async def mark_reflected(self, session: AsyncSession, workspace_id: uuid.UUID, memory_ids: list[str]) -> None:
         if not memory_ids:
             return
         await session.execute(
             update(MemoryRecord)
-            .where(MemoryRecord.id.in_(memory_ids))
+            .where(
+                MemoryRecord.workspace_id == workspace_id,
+                MemoryRecord.id.in_(memory_ids),
+            )
             .values(
                 reflection_status="reflected",
                 reflection_count=MemoryRecord.reflection_count + 1,
@@ -93,12 +97,19 @@ class BasePipeline(ABC):
             )
         )
 
-    async def mark_archived(self, session: AsyncSession, memory_ids: list[str]) -> None:
+    async def mark_archived(self, session: AsyncSession, workspace_id: uuid.UUID, memory_ids: list[str]) -> None:
         if not memory_ids:
             return
-        await session.execute(update(MemoryRecord).where(MemoryRecord.id.in_(memory_ids)).values(reflection_status="archived"))
+        await session.execute(
+            update(MemoryRecord)
+            .where(
+                MemoryRecord.workspace_id == workspace_id,
+                MemoryRecord.id.in_(memory_ids),
+            )
+            .values(reflection_status="archived")
+        )
 
-    def emit_metric(self, name: str, value: float, labels: dict) -> None:
+    def emit_metric(self, name: str, value: float, labels: dict[str, str]) -> None:
         if name == "reflection_memories_processed_total":
             instruments.reflection_memories_processed_total.labels(**labels).inc(value)
         elif name == "reflection_duration_seconds":
@@ -112,7 +123,7 @@ class BasePipeline(ABC):
         session.add_all(results)
 
     @asynccontextmanager
-    async def timed_step(self, step_name: str):
+    async def timed_step(self, step_name: str) -> AsyncIterator[None]:
         started = time.perf_counter()
         try:
             yield

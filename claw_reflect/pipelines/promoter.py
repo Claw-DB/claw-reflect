@@ -6,6 +6,7 @@ import time
 from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from claw_reflect.models.contradiction import ContradictionRecord
 from claw_reflect.models.memory import MemoryRecord
@@ -21,7 +22,7 @@ class MemoryPromotionPipeline(BasePipeline):
     async def run(self, ctx: PipelineContext) -> PipelineResult:
         started = time.perf_counter()
         processed = updated = archived = failed = 0
-        details: list[dict] = []
+        details: list[dict[str, object]] = []
 
         async with self.session_factory() as session:
             result = await session.execute(
@@ -97,7 +98,7 @@ class MemoryPromotionPipeline(BasePipeline):
             details=details,
         )
 
-    async def demote_stale_promoted(self, ctx: PipelineContext, session) -> None:
+    async def demote_stale_promoted(self, ctx: PipelineContext, session: AsyncSession) -> None:
         result = await session.execute(
             select(MemoryRecord).where(
                 MemoryRecord.workspace_id == ctx.workspace_id,

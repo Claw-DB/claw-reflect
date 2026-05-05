@@ -15,6 +15,7 @@ from claw_reflect.db.session import get_session, session_factory
 from claw_reflect.decay.engine import DecayEngine
 from claw_reflect.decay.policy import DecayPolicyRegistry
 from claw_reflect.llm.anthropic import AnthropicAdapter
+from claw_reflect.llm.base import BaseLLMAdapter
 from claw_reflect.llm.ollama import OllamaAdapter
 from claw_reflect.llm.openai import OpenAIAdapter
 from claw_reflect.llm.prompts import PromptLibrary
@@ -38,7 +39,7 @@ def _new_id() -> str:
     return uuid.uuid4().hex[:26]
 
 
-def _build_llm_adapter():
+def _build_llm_adapter() -> BaseLLMAdapter:
     if settings.llm_provider == "anthropic":
         return AnthropicAdapter(
             api_key=settings.llm_api_key.get_secret_value(),
@@ -190,7 +191,7 @@ async def score_agent(
     agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
     workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> dict[str, str | int]:
     try:
         span = get_current_span()
         span.set_attribute("workspace_id", str(workspace_id))
@@ -226,7 +227,7 @@ async def decay_agent(
     request: Request,
     agent_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
     workspace_id: uuid.UUID = Depends(get_workspace_id),
-) -> dict:
+) -> dict[str, str | int]:
     try:
         span = get_current_span()
         span.set_attribute("workspace_id", str(workspace_id))
@@ -239,7 +240,7 @@ async def decay_agent(
             # Compatibility with legacy test doubles expecting old signature.
             result = await engine.run_decay_cycle(agent_id)
         return {
-            "agent_id": result.agent_id,
+            "agent_id": result.agent_id or agent_id,
             "processed": result.processed,
             "decayed": result.decayed,
             "archived": result.archived,

@@ -1,6 +1,7 @@
 """Celery task for refreshing composite scores across all memory records."""
 
 import asyncio
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -8,6 +9,7 @@ from sqlalchemy import select
 from claw_reflect.config import settings
 from claw_reflect.db.session import session_factory
 from claw_reflect.llm.anthropic import AnthropicAdapter
+from claw_reflect.llm.base import BaseLLMAdapter
 from claw_reflect.llm.ollama import OllamaAdapter
 from claw_reflect.llm.openai import OpenAIAdapter
 from claw_reflect.llm.prompts import PromptLibrary
@@ -20,7 +22,7 @@ from claw_reflect.scoring.recency import RecencyScorer
 from claw_reflect.workers.celery_app import celery_app
 
 
-def _build_llm_adapter():
+def _build_llm_adapter() -> BaseLLMAdapter:
     if settings.llm_provider == "anthropic":
         return AnthropicAdapter(
             api_key=settings.llm_api_key.get_secret_value(),
@@ -44,7 +46,7 @@ def _build_llm_adapter():
 
 @celery_app.task(bind=True, name="claw_reflect.workers.tasks.score.rescore_memories_task")
 def rescore_memories_task(
-    self,
+    self: Any,
     workspace_id: str | None = None,
     agent_id: str | None = None,
 ) -> dict[str, object]:

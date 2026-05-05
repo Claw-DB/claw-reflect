@@ -193,11 +193,11 @@ impl ReflectClient {
     pub async fn trigger_job(
         &self,
         job_type: &str,
-        workspace_id: &str,
+        agent_id: &str,
         dry_run: bool,
     ) -> Result<ReflectJob, ReflectError> {
         let request = TriggerRequest {
-            agent_id: workspace_id.to_string(),
+            agent_id: agent_id.to_string(),
             job_type: job_type.to_string(),
             options: serde_json::json!({}),
         };
@@ -242,8 +242,8 @@ impl ReflectClient {
         Ok(response.json::<ReflectJob>().await?)
     }
 
-    pub async fn get_facts(&self, workspace_id: &str) -> Result<Vec<ExtractedFact>, ReflectError> {
-        let url = format!("{}/api/v1/profiles/{}", self.base_url, workspace_id);
+    pub async fn get_facts(&self, agent_id: &str) -> Result<Vec<ExtractedFact>, ReflectError> {
+        let url = format!("{}/api/v1/profiles/{}", self.base_url, agent_id);
         let response = self
             .client
             .get(url)
@@ -318,11 +318,11 @@ impl ReflectClient {
 
     pub async fn get_preferences(
         &self,
-        workspace_id: &str,
+        agent_id: &str,
     ) -> Result<Vec<Preference>, ReflectError> {
         let url = format!(
             "{}/api/v1/profiles/{}/preferences",
-            self.base_url, workspace_id
+            self.base_url, agent_id
         );
         let response = self
             .client
@@ -341,11 +341,11 @@ impl ReflectClient {
 
     pub async fn get_contradictions(
         &self,
-        workspace_id: &str,
+        agent_id: &str,
     ) -> Result<Vec<Contradiction>, ReflectError> {
         let url = format!(
             "{}/api/v1/profiles/{}/contradictions",
-            self.base_url, workspace_id
+            self.base_url, agent_id
         );
         let response = self
             .client
@@ -363,7 +363,7 @@ impl ReflectClient {
 
     pub async fn resolve_contradiction(
         &self,
-        workspace_id: &str,
+        agent_id: &str,
         contradiction_id: &str,
         strategy: &str,
         merged_value: Option<Value>,
@@ -376,7 +376,7 @@ impl ReflectClient {
 
         let url = format!(
             "{}/api/v1/profiles/{}/contradictions/{}/resolve",
-            self.base_url, workspace_id, contradiction_id
+            self.base_url, agent_id, contradiction_id
         );
         let response = self
             .client

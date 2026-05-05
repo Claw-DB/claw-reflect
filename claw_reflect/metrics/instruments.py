@@ -231,7 +231,8 @@ def refresh_queue_depth() -> None:
     """Update queue-depth gauge from Redis LLEN of celery queue."""
     try:
         client = redis.Redis.from_url(settings.redis_url)
-        depth = int(client.llen("celery"))
+        depth_value = client.llen("celery")
+        depth = depth_value if isinstance(depth_value, int) else 0
         reflect_queue_depth.set(depth)
     except Exception:
         reflect_queue_depth.set(0)

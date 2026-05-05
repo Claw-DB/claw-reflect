@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from blake3 import blake3
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from limits import parse as parse_limit
@@ -16,7 +17,8 @@ def api_key_func(request: Request) -> str:
     """Return a stable rate-limit key derived from API key header."""
     raw = request.headers.get("X-Claw-Api-Key", "")
     if raw:
-        return raw
+        request.state.api_key_prefix = raw[:12]
+        return f"api-key:{blake3(raw.encode('utf-8')).hexdigest()}"
     return f"anon:{get_remote_address(request)}"
 
 
@@ -42,4 +44,5 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) 
     return JSONResponse(
         status_code=429,
         content={"error": "rate_limit_exceeded", "retry_after_seconds": retry_after},
+        headers={"Retry-After": str(retry_after)},
     )

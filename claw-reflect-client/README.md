@@ -1,12 +1,12 @@
 # claw-reflect-client
 
-Small async Rust client for `claw-reflect`.
+Small async Rust client for `claw-reflect` with API-key authentication. Workspace isolation is derived from the server-side API key mapping.
 
 ## Install
 
 ```toml
 [dependencies]
-claw-reflect-client = "0.1.0"
+claw-reflect-client = "0.1.2"
 ```
 
 ## Usage
@@ -40,14 +40,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - `trigger_job(..., dry_run=false)` -> `POST /api/v1/reflect/trigger`
 - `trigger_job(..., dry_run=true)` -> `POST /api/v1/reflect/trigger/dry-run`
-- `get_facts(workspace_id)` -> `GET /api/v1/profiles/{workspace_id}`
+- `get_facts(agent_id)` -> `GET /api/v1/profiles/{agent_id}`
 - `list_jobs(...)` -> `GET /api/v1/jobs`
 - `get_job(job_id)` -> `GET /api/v1/jobs/{job_id}`
-- `get_preferences(workspace_id)` -> `GET /api/v1/profiles/{workspace_id}/preferences`
-- `get_contradictions(workspace_id)` -> `GET /api/v1/profiles/{workspace_id}/contradictions`
-- `resolve_contradiction(...)` -> `POST /api/v1/profiles/{workspace_id}/contradictions/{contradiction_id}/resolve`
+- `get_preferences(agent_id)` -> `GET /api/v1/profiles/{agent_id}/preferences`
+- `get_contradictions(agent_id)` -> `GET /api/v1/profiles/{agent_id}/contradictions`
+- `resolve_contradiction(...)` -> `POST /api/v1/profiles/{agent_id}/contradictions/{contradiction_id}/resolve`
 
-Note: The Python API path currently uses `agent_id` in the profile route. This crate keeps your requested method signature and passes `workspace_id` through that route parameter.
+Pass `agent_id` route parameters only. The workspace is inferred from `X-Claw-Api-Key` on the service side.
 
 ## Integration Tests
 

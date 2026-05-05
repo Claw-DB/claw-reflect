@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
@@ -50,7 +50,7 @@ class LLMRetryPolicy:
             async def _call_primary() -> LLMResponse:
                 return await primary.complete(messages=messages, max_tokens=max_tokens)
 
-            return await _call_primary()
+            return cast(LLMResponse, await _call_primary())
         except Exception as exc:
             logger.warning(
                 "Primary LLM failed; activating fallback",
@@ -59,5 +59,3 @@ class LLMRetryPolicy:
                 error=str(exc),
             )
             return await fallback.complete(messages=messages, max_tokens=max_tokens)
-
-        raise RuntimeError("Failed to complete with both primary and fallback LLM adapters")

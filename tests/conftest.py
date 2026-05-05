@@ -9,20 +9,20 @@ from dataclasses import dataclass, field
 
 import pytest
 import pytest_asyncio
+from blake3 import blake3
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from starlette.requests import Request
 
 os.environ.setdefault("REFLECT_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("REFLECT_LLM_API_KEY", "test-key")
 os.environ.setdefault("REFLECT_RATE_LIMIT_STORAGE_URL", "memory://")
 
-from claw_reflect.auth import get_api_key
 from claw_reflect.config import Settings, settings
 from claw_reflect.db.base import Base
 from claw_reflect.db.session import get_session
 from claw_reflect.llm.base import BaseLLMAdapter, LLMMessage, LLMResponse
 from claw_reflect.main import app
+from claw_reflect.models.api_key import ApiKey
 from tests.factories import MemoryRecordFactory
 
 
@@ -95,22 +95,41 @@ async def async_session(async_engine):
 
 @pytest_asyncio.fixture
 async def client(async_session: AsyncSession) -> AsyncIterator[AsyncClient]:
+    from claw_reflect import auth
+
     async def _override_get_session():
         yield async_session
 
-    async def _override_get_api_key(request: Request):
-        request.state.workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
-        request.state.api_key_prefix = "test-key"
-        return "test-key"
+    factory = async_sessionmaker(async_session.bind, expire_on_commit=False, class_=AsyncSession)
 
-    from claw_reflect.api.v1 import router as v1_router_module
+    class _CM:
+        async def __aenter__(self):
+            self._session = factory()
+            return self._session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            await self._session.close()
+            return False
+
+    auth.session_factory = lambda: _CM()
+
+    raw_key = "test-key"
+    workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
+    async_session.add(
+        ApiKey(
+            key_hash=blake3(raw_key.encode("utf-8")).hexdigest(),
+            workspace_id=workspace_id,
+            label="pytest",
+            revoked=False,
+        )
+    )
+    await async_session.commit()
 
     app.dependency_overrides[get_session] = _override_get_session
-    app.dependency_overrides[get_api_key] = _override_get_api_key
-    app.dependency_overrides[v1_router_module.get_api_key] = _override_get_api_key
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://test",
+        headers={"X-Claw-Api-Key": raw_key},
     ) as ac:
         yield ac
     app.dependency_overrides.clear()

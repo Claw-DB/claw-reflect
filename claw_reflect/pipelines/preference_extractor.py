@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import enum
 import time
+import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from claw_reflect.llm.prompts import PromptLibrary, parse_json_response
 from claw_reflect.models.memory import MemoryRecord
@@ -45,7 +47,7 @@ class PreferenceExtractionPipeline(BasePipeline):
     async def run(self, ctx: PipelineContext) -> PipelineResult:
         started = time.perf_counter()
         processed = updated = archived = failed = 0
-        details: list[dict] = []
+        details: list[dict[str, object]] = []
 
         async with self.session_factory() as session:
             memories = await self.fetch_pending_memories(
@@ -169,7 +171,7 @@ class PreferenceExtractionPipeline(BasePipeline):
                     )
 
                 if not ctx.dry_run:
-                    await self.mark_reflected(session, [m.id for m in chunk])
+                    await self.mark_reflected(session, ctx.workspace_id, [m.id for m in chunk])
                 processed += len(chunk)
 
             if not ctx.dry_run:
@@ -190,7 +192,7 @@ class PreferenceExtractionPipeline(BasePipeline):
             details=details,
         )
 
-    async def update_agent_profile(self, session, workspace_id, agent_id: str) -> None:
+    async def update_agent_profile(self, session: AsyncSession, workspace_id: uuid.UUID, agent_id: str) -> None:
         pref_rows = await session.execute(
             select(ExtractedPreference).where(
                 ExtractedPreference.workspace_id == workspace_id,

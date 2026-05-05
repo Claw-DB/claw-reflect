@@ -6,6 +6,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
 from alembic.config import Config
 from fastapi import FastAPI
@@ -18,8 +19,9 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from slowapi.errors import RateLimitExceeded
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
+from starlette.responses import Response
 
 from alembic import command
 from claw_reflect.api.v1.router import v1_router
@@ -31,6 +33,7 @@ from claw_reflect.decay.engine import DecayEngine
 from claw_reflect.decay.policy import DecayPolicyRegistry
 from claw_reflect.decay.scheduler import ReflectScheduler
 from claw_reflect.llm.anthropic import AnthropicAdapter
+from claw_reflect.llm.base import BaseLLMAdapter
 from claw_reflect.llm.ollama import OllamaAdapter
 from claw_reflect.llm.openai import OpenAIAdapter
 from claw_reflect.logging import configure_logging, get_logger
@@ -40,6 +43,7 @@ from claw_reflect.metrics.instruments import (
     init_metrics,
     scheduler_jobs_active,
 )
+from claw_reflect.middleware.auth_context import AuthContextMiddleware
 from claw_reflect.middleware.body_size import BodySizeLimitMiddleware
 from claw_reflect.middleware.logging import RequestLoggingMiddleware
 from claw_reflect.middleware.security_headers import SecurityHeadersMiddleware
@@ -51,7 +55,7 @@ scheduler: ReflectScheduler | None = None
 
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         start = time.perf_counter()
         response = await call_next(request)
         duration = time.perf_counter() - start
@@ -64,7 +68,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def _build_llm_adapter():
+def _build_llm_adapter() -> BaseLLMAdapter:
     if settings.llm_provider == "anthropic":
         return AnthropicAdapter(
             api_key=settings.llm_api_key.get_secret_value(),
@@ -127,7 +131,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     init_metrics()
 
     llm = _build_llm_adapter()
-    decay_engine = DecayEngine(session_factory, settings, DecayPolicyRegistry)
+    decay_engine = DecayEngine(session_factory, settings, DecayPolicyRegistry())
     reflection_pipeline = FullReflectionPipeline(session_factory, llm, settings)
     scheduler = ReflectScheduler(settings, decay_engine, reflection_pipeline)
     set_scheduler(scheduler)
@@ -148,12 +152,13 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="claw-reflect",
         version="0.1.0",
-        lifespan=lifespan,
+        lifespan=cast(Any, lifespan),
         docs_url="/docs" if settings.debug else None,
     )
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, cast(Any, rate_limit_exceeded_handler))
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_size_bytes)
+    app.add_middleware(AuthContextMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(PrometheusMiddleware)

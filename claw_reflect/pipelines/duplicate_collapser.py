@@ -28,7 +28,7 @@ class DuplicateCollapsePipeline(BasePipeline):
     async def run(self, ctx: PipelineContext) -> PipelineResult:
         started = time.perf_counter()
         processed = updated = archived = failed = 0
-        details: list[dict] = []
+        details: list[dict[str, object]] = []
 
         async with self.session_factory() as session:
             result = await session.execute(
@@ -113,7 +113,7 @@ class DuplicateCollapsePipeline(BasePipeline):
                         )
                         session.add(merged)
 
-                    await self.mark_archived(session, [m.id for m in to_archive])
+                    await self.mark_archived(session, ctx.workspace_id, [m.id for m in to_archive])
                     archived += len(to_archive)
 
                     reflection_results.append(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 
@@ -44,7 +45,7 @@ class FullReflectionResult:
 class FullReflectionPipeline(BasePipeline):
     name = "full_reflection"
 
-    async def run(self, ctx: PipelineContext) -> FullReflectionResult:
+    async def run(self, ctx: PipelineContext) -> FullReflectionResult | Any:
         started = time.perf_counter()
         stage_results: dict[str, PipelineResult] = {}
 

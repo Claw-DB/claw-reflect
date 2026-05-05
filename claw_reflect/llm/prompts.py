@@ -34,7 +34,7 @@ class PromptLibrary:
         return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user)]
 
     @classmethod
-    def extract_preferences(cls, memories: list[str], existing_prefs: dict) -> list[LLMMessage]:
+    def extract_preferences(cls, memories: list[str], existing_prefs: dict[str, object]) -> list[LLMMessage]:
         system = (
             "Extract durable user preferences, habits, and dislikes from the memory entries. "
             "Infer cautiously and include reasoning. "
@@ -58,7 +58,7 @@ class PromptLibrary:
         return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user)]
 
     @classmethod
-    def resolve_contradiction(cls, contradiction: dict, strategy: str) -> list[LLMMessage]:
+    def resolve_contradiction(cls, contradiction: dict[str, object], strategy: str) -> list[LLMMessage]:
         system = (
             "Resolve a contradiction between two conflicting values according to strategy. "
             "Schema: {resolved_value: any, reasoning: str}. " + cls.JSON_ONLY_SUFFIX
@@ -67,7 +67,7 @@ class PromptLibrary:
         return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user)]
 
     @classmethod
-    def score_importance(cls, memory: str, context: dict) -> list[LLMMessage]:
+    def score_importance(cls, memory: str, context: dict[str, object]) -> list[LLMMessage]:
         system = (
             "Rate long-term importance of a memory from 0.0 to 1.0. "
             "Schema: {score: float, reasoning: str, factors: list[str]}. " + cls.JSON_ONLY_SUFFIX
