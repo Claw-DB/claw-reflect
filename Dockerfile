@@ -1,4 +1,4 @@
-FROM python:3.11.9-slim-bookworm AS builder
+FROM python:3.14.0-slim-bookworm AS builder
 
 WORKDIR /build
 
@@ -9,7 +9,7 @@ COPY pyproject.toml README.md ./
 RUN uv pip install --system --prefix /install .
 
 
-FROM python:3.11.9-slim-bookworm AS final
+FROM python:3.14.0-slim-bookworm AS final
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
